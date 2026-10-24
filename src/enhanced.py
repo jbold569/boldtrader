@@ -211,8 +211,11 @@ def _render_card(card: dict, search_id: int) -> str:
         f'<a class="title" href="{html.escape(card["url"])}" target="_blank" '
         f'rel="noopener">{html.escape(card["title"])}</a></div>'
         f'<div class="price">{_fmt_price(card["price"])}</div>'
-        f"{ai_desc}{jobline}"
+        f"{jobline}"
         "</div></div>"
+    )
+    desc_row = (
+        f'<div class="descrow">{ai_desc}</div>' if ai_desc else ""
     )
     btns = (
         '<div class="btns">'
@@ -228,7 +231,7 @@ def _render_card(card: dict, search_id: int) -> str:
         "</form>"
         "</div>"
     )
-    return f'<li class="card">{data}{btns}</li>'
+    return f'<li class="card">{data}{desc_row}{btns}</li>'
 
 
 def _view_link(search_id: int, show_all: bool, price_filter: bool) -> str:

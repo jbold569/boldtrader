@@ -80,6 +80,9 @@ li.card .cond { color: var(--muted); font-size: 13px; margin-top: 2px; }
 li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 6px; line-height: 1.45; }
 li.card .jobline { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 li.card .job { font-size: 12px; margin: 0; }
+/* AI description: own full-width row between data row and buttons row */
+li.card .descrow { margin-top: 10px; }
+li.card .descrow .enriched { margin-top: 0; }
 /* raw search page keeps the single header-row card */
 li.card .head { display: flex; gap: 14px; align-items: center; }
 li.card .head img { width: 128px; height: 128px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--card); flex: 0 0 auto; }
