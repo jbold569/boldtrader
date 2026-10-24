@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BoldTrader — $query</title>
+<style>
+  :root { --border: #d8d8d8; --muted: #666; --accent: #0b5fff; --error-bg: #fdecea; --error-fg: #b3261e; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: #222; background: #fafafa; }
+  header { background: #fff; border-bottom: 1px solid var(--border); padding: 16px 24px; }
+  header h1 { margin: 0 0 12px; font-size: 20px; }
+  form.search { display: flex; gap: 8px; max-width: 560px; }
+  form.search input[type=text] { flex: 1; padding: 8px 12px; font-size: 15px; border: 1px solid var(--border); border-radius: 6px; }
+  form.search button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+  .banner { background: var(--error-bg); color: var(--error-fg); padding: 10px 24px; font-size: 14px; }
+  .meta { padding: 12px 24px 0; color: var(--muted); font-size: 14px; }
+  ul.results { list-style: none; margin: 0; padding: 12px 24px 32px; display: grid; gap: 12px; }
+  li.card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; gap: 14px; align-items: flex-start; }
+  li.card img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: #fff; flex: 0 0 auto; }
+  li.card .body { flex: 1; }
+  li.card a.title { font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; }
+  li.card a.title:hover { text-decoration: underline; }
+  li.card .price { font-size: 17px; font-weight: 700; margin-top: 4px; }
+  li.card .cond { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  li.card .snippet { color: #444; font-size: 14px; margin-top: 6px; line-height: 1.45; }
+  li.card .titlerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 8px; border-radius: 10px; color: #fff; }
+  .badge-offerup { background: #1a7f37; }
+  .badge-facebook { background: #1877f2; }
+  nav.pager { padding: 8px 24px 32px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 14px; }
+  nav.pager a, nav.pager span.cur { padding: 6px 11px; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--accent); background: #fff; }
+  nav.pager span.cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+  nav.pager span.disabled { color: #bbb; padding: 6px 11px; border: 1px dashed var(--border); border-radius: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BoldTrader</h1>
+  <form class="search" method="get" action="/">
+    <input type="text" name="q" value="$query" placeholder="Search listings…">
+    <input type="text" name="loc" value="$location" placeholder="Location (e.g. Dallas, TX)">
+    $market_select
+    <button type="submit">Search</button>
+  </form>
+</header>
+$banner
+<div class="meta">$total results for <strong>$query</strong> · page $page of $total_pages · $source</div>
+<ul class="results">
+$rows
+</ul>
+<nav class="pager">
+$pagination
+</nav>
+</body>
+</html>

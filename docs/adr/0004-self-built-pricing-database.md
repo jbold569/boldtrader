@@ -1,0 +1,7 @@
+# Self-built pricing database from observed asking prices
+
+Fair price needs a price history, but we decided not to depend on any marketplace exposing sold/completed-sale data. eBay gates its sold-data API (Marketplace Insights) to approved partners and is not granting new applicants; OfferUp and Facebook expose no sold data at all. Rather than block on that, we build our own pricing database: each time the app searches, identifies a product, and sees a listing, it records the effective price — the asking price adjusted for the flip value of unwanted bundled components — for that product in that condition on that day. Over time these daily price observations accumulate into our own market picture, and fair price is derived from that.
+
+This trades the accuracy of actual sold prices (asking prices run systematically higher, and on bartering marketplaces the gap between ask and sale is real) for complete control and independence from marketplace data policy. The per-marketplace adjustment from ADR 0002 still applies: our own observations from a bartering marketplace are adjusted so they aren't compared raw against fixed-price-marketplace observations. Price-surge detection (ADR 0001) now reads directly from this observation stream — we see the market move because we watch it daily.
+
+Supersedes the sold-data premise of ADR 0002. The per-marketplace adjustment concept is retained; only the data source changes, from marketplace sold history to our own recorded asking-price observations.
