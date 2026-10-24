@@ -5,3 +5,5 @@ venv/
 .env
 .fb-profile/
 boldtrader.db
+
+.scratch/bargain-search/logs/
