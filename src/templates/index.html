@@ -32,12 +32,24 @@
   nav.pager a, nav.pager span.cur { padding: 6px 11px; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--accent); background: #fff; }
   nav.pager span.cur { background: var(--accent); color: #fff; border-color: var(--accent); }
   nav.pager span.disabled { color: #bbb; padding: 6px 11px; border: 1px dashed var(--border); border-radius: 6px; }
+  @media (max-width: 600px) {
+    header { padding: 12px 14px; }
+    form.search { flex-direction: column; }
+    form.search input[type=text] { font-size: 16px; }
+    .banner { padding: 8px 14px; }
+    .meta { padding: 10px 14px 0; }
+    ul.results { padding: 10px 14px 24px; }
+    li.card { padding: 10px; gap: 10px; }
+    li.card img { width: 72px; height: 72px; }
+    nav.pager { padding: 8px 14px 24px; }
+    nav.pager a, nav.pager span.cur, nav.pager span.disabled { padding: 8px 12px; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>BoldTrader</h1>
-  <form class="search" method="get" action="/">
+  <form class="search" method="get" action="/raw">
     <input type="text" name="q" value="$query" placeholder="Search listings…">
     <input type="text" name="loc" value="$location" placeholder="Location (e.g. Dallas, TX)">
     $market_select

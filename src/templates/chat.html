@@ -25,12 +25,20 @@
   form.say textarea { flex: 1; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; }
   form.say button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; align-self: flex-end; }
   .empty { color: var(--muted); font-size: 14px; }
+  @media (max-width: 600px) {
+    header { padding: 12px 14px; }
+    .banner { padding: 8px 14px; }
+    .wrap { padding: 12px 14px 32px; }
+    form.confirm input[type=text], form.confirm textarea, form.say textarea { font-size: 16px; }
+    form.say { flex-direction: column; }
+    form.say button { width: 100%; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>BoldTrader — $heading</h1>
-  <a href="/">← Raw keyword search</a>
+  <a href="/raw">← Raw keyword search</a>
 </header>
 $banner
 <div class="wrap">

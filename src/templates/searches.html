@@ -20,6 +20,13 @@
   li.row .status { font-size: 13px; color: var(--muted); }
   li.row .count { font-size: 13px; color: var(--muted); }
   li.row .updated { font-size: 12px; color: #999; }
+  @media (max-width: 600px) {
+    header { padding: 12px 14px; }
+    header nav { gap: 12px; flex-wrap: wrap; }
+    .banner { padding: 8px 14px; }
+    ul.searches { margin: 12px 14px 24px; }
+    li.row { padding: 10px 12px; gap: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -27,7 +34,7 @@
   <h1>Bargain Searches</h1>
   <nav>
     <a href="/chat">New bargain search</a>
-    <a href="/">Raw keyword search</a>
+    <a href="/raw">Raw keyword search</a>
   </nav>
 </header>
 $banner

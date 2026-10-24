@@ -262,10 +262,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/search":
             self._handle_enhanced_get(parsed)
             return
-        if parsed.path == "/searches":
+        if parsed.path in ("/", "/index.html", "/searches"):
             self._handle_searches_get()
             return
-        if parsed.path not in ("/", "/index.html"):
+        if parsed.path != "/raw":
             self._send(404, "Not found")
             return
 
