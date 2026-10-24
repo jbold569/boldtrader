@@ -146,19 +146,31 @@ class FacebookScraper(Marketplace):
                 continue
             seen.add(item_id)
             lines = [l for l in a.get_text("\n", strip=True).split("\n") if l]
-            # FB card text order: [sale price] [original price] title location
-            # (verified live 2026-10-23; sale cards carry two price lines)
             _PRICE = re.compile(r"^\$[\d,]+(?:\.\d{2})?$")
-            price = None
-            title = ""
-            for line in lines:
-                if _PRICE.match(line):
-                    if price is None:
-                        price = float(line.replace(",", "").lstrip("$"))
-                    continue
-                title = line
-                break
+            # FB overlays status badges ("Just listed", "Price drop", ...) as the
+            # first text line on some cards, so the old "first non-price line"
+            # heuristic grabbed the badge as the title. The img alt is reliable:
+            # "<title> in <city>, WA", and the location is also the last line.
             img = a.find("img")
+            alt = (img.get("alt") or "").strip() if img else ""
+            location = lines[-1] if lines else ""
+            title = alt
+            if location and title.endswith(" in " + location):
+                title = title[: -len(" in " + location)]
+            # Price is the first $-token in the first two lines (sale cards glue
+            # current+original, e.g. "$0$5"; free items write the word "Free").
+            price = None
+            for l in lines[:2]:
+                if l.strip().lower() == "free":
+                    price = 0.0
+                    break
+                m = re.search(r"\$[\d,]+(?:\.\d{2})?", l)
+                if m:
+                    price = float(m.group(0).replace(",", "").lstrip("$"))
+                    break
+            if not title or title.lower() in ("just listed", "new", "featured", "price drop", "hot"):
+                # alt missing/bad: real title is the line just before location
+                title = lines[-2] if len(lines) >= 2 else ""
             listings.append(
                 Listing(
                     id=item_id,
