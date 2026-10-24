@@ -4,42 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BoldTrader — $heading</title>
-<style>
-  :root { --border: #d8d8d8; --muted: #666; --accent: #0b5fff; --error-bg: #fdecea; --error-fg: #b3261e; }
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: #222; background: #fafafa; }
-  header { background: #fff; border-bottom: 1px solid var(--border); padding: 16px 24px; }
-  header h1 { margin: 0; font-size: 20px; }
-  header a { color: var(--accent); text-decoration: none; font-size: 14px; }
-  .banner { background: var(--error-bg); color: var(--error-fg); padding: 10px 24px; font-size: 14px; }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 16px 24px 48px; }
-  .msg { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-  .msg.user { background: #eef4ff; }
-  .msg strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin-bottom: 4px; }
-  form.confirm { background: #fff; border: 2px solid var(--accent); border-radius: 8px; padding: 16px; margin: 16px 0; }
-  form.confirm p.note { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
-  form.confirm label { display: block; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
-  form.confirm input[type=text], form.confirm textarea { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; }
-  form.confirm button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
-  form.say { display: flex; gap: 8px; margin-top: 16px; }
-  form.say textarea { flex: 1; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; }
-  form.say button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; align-self: flex-end; }
-  .empty { color: var(--muted); font-size: 14px; }
-  @media (max-width: 600px) {
-    header { padding: 12px 14px; }
-    .banner { padding: 8px 14px; }
-    .wrap { padding: 12px 14px 32px; }
-    form.confirm input[type=text], form.confirm textarea, form.say textarea { font-size: 16px; }
-    form.say { flex-direction: column; }
-    form.say button { width: 100%; }
-  }
-</style>
+<script>(function(){var t=localStorage.getItem('bt-theme');if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t);})();</script>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>BoldTrader — $heading</h1>
-  <a href="/raw">← Raw keyword search</a>
-</header>
+<nav class="navbar">
+  <a class="brand" href="/">BoldTrader</a>
+  <div class="links">
+    <a href="/searches">Bargain Searches</a>
+    <a href="/chat">New Search</a>
+    <a href="/raw">Raw Search</a>
+  </div>
+  <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+</nav>
 $banner
 <div class="wrap">
 $transcript

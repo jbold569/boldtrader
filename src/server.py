@@ -34,6 +34,9 @@ CHAT_TEMPLATE_PATH = Path(__file__).parent / "templates" / "chat.html"
 _template = string.Template(TEMPLATE_PATH.read_text(encoding="utf-8"))
 _chat_template = string.Template(CHAT_TEMPLATE_PATH.read_text(encoding="utf-8"))
 
+STATIC_DIR = Path(__file__).parent / "templates"
+STATIC_TYPES = {".css": "text/css", ".js": "application/javascript"}
+
 
 class _Cache:
     """In-memory TTL cache keyed on (marketplace, query, location, page)."""
@@ -260,6 +263,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
+        if parsed.path in ("/app.css", "/app.js"):
+            self._serve_static(parsed.path)
+            return
         if parsed.path == "/chat":
             self._handle_chat_get(parsed)
             return
@@ -565,6 +571,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_static(self, path: str) -> None:
+        f = STATIC_DIR / path.lstrip("/")
+        if not f.is_file():
+            self._send(404, "Not found")
+            return
+        data = f.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", STATIC_TYPES.get(f.suffix, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(data)
 

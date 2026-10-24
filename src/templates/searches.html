@@ -4,42 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BoldTrader — Bargain Searches</title>
-<style>
-  :root { --border: #d8d8d8; --muted: #666; --accent: #0b5fff; --error-bg: #fdecea; --error-fg: #b3261e; }
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: #222; background: #fafafa; }
-  header { background: #fff; border-bottom: 1px solid var(--border); padding: 16px 24px; }
-  header h1 { margin: 0 0 8px; font-size: 20px; }
-  header nav { font-size: 14px; display: flex; gap: 16px; }
-  header nav a { color: var(--accent); text-decoration: none; }
-  .banner { background: var(--error-bg); color: var(--error-fg); padding: 10px 24px; font-size: 14px; }
-  ul.searches { list-style: none; margin: 16px 24px 32px; padding: 0; display: grid; gap: 8px; }
-  li.row { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; }
-  li.row a.summary { font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; flex: 1; }
-  li.row a.summary:hover { text-decoration: underline; }
-  li.row .status { font-size: 13px; color: var(--muted); }
-  li.row .count { font-size: 13px; color: var(--muted); }
-  li.row .updated { font-size: 12px; color: #999; }
-  form.del { display: inline; margin: 0; }
-  form.del button { padding: 4px 12px; font-size: 12px; border: 1px solid var(--error-fg); border-radius: 6px; background: #fff; color: var(--error-fg); cursor: pointer; }
-  form.del button:hover { background: var(--error-bg); }
-  @media (max-width: 600px) {
-    header { padding: 12px 14px; }
-    header nav { gap: 12px; flex-wrap: wrap; }
-    .banner { padding: 8px 14px; }
-    ul.searches { margin: 12px 14px 24px; }
-    li.row { padding: 10px 12px; gap: 8px; }
-  }
-</style>
+<script>(function(){var t=localStorage.getItem('bt-theme');if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t);})();</script>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>Bargain Searches</h1>
-  <nav>
-    <a href="/chat">New bargain search</a>
-    <a href="/raw">Raw keyword search</a>
-  </nav>
-</header>
+<nav class="navbar">
+  <a class="brand" href="/">BoldTrader</a>
+  <div class="links">
+    <a href="/searches">Bargain Searches</a>
+    <a href="/chat">New Search</a>
+    <a href="/raw">Raw Search</a>
+  </div>
+  <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+</nav>
 $banner
 <ul class="searches">
 $rows

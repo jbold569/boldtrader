@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import time
+from urllib.parse import urlsplit
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -137,8 +138,10 @@ class FacebookScraper(Marketplace):
         listings: list[Listing] = []
         seen: set[str] = set()
         for a in soup.select('a[href*="/marketplace/item/"]'):
-            href = a["href"].split("&ref")[0]
-            item_id = re.sub(r"\D", "", href.split("?")[0].rsplit("/", 1)[-1]) or href
+            href = urlsplit(a["href"])._replace(query="").geturl().rstrip("/")
+            if href.startswith("/"):
+                href = "https://www.facebook.com" + href
+            item_id = re.sub(r"\D", "", href.rsplit("/", 1)[-1]) or href
             if item_id in seen:
                 continue
             seen.add(item_id)

@@ -4,66 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BoldTrader — $summary</title>
-<style>
-  :root { --border: #d8d8d8; --muted: #666; --accent: #0b5fff; --error-bg: #fdecea; --error-fg: #b3261e; }
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: #222; background: #fafafa; }
-  header { background: #fff; border-bottom: 1px solid var(--border); padding: 16px 24px; }
-  header h1 { margin: 0 0 8px; font-size: 20px; }
-  header nav { font-size: 14px; display: flex; gap: 16px; }
-  header nav a { color: var(--accent); text-decoration: none; }
-  .banner { background: var(--error-bg); color: var(--error-fg); padding: 10px 24px; font-size: 14px; }
-  .meta { padding: 12px 24px 0; color: var(--muted); font-size: 14px; }
-  .meta .toggles { margin-top: 4px; }
-  .meta .toggles a { color: var(--accent); text-decoration: none; }
-  ul.results { list-style: none; margin: 0; padding: 12px 24px 32px; display: grid; gap: 12px; }
-  li.card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; gap: 14px; align-items: flex-start; }
-  li.card img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: #fff; flex: 0 0 auto; }
-  li.card .body { flex: 1; min-width: 0; }
-  li.card .titlerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  li.card a.title { font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; }
-  li.card a.title:hover { text-decoration: underline; }
-  li.card .price { font-size: 17px; font-weight: 700; margin-top: 4px; }
-  .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 8px; border-radius: 10px; color: #fff; }
-  .badge-offerup { background: #1a7f37; }
-  .badge-facebook { background: #1877f2; }
-  .badge-ebay { background: #e53238; }
-  .enriched { margin-top: 8px; font-size: 13px; color: #1a4d1a; background: #f2f9f2; border: 1px solid #cfe8cf; border-radius: 6px; padding: 8px 10px; }
-  .lowconf { margin-top: 6px; color: #8a6d1a; font-size: 12px; }
-  .pending { margin-top: 8px; font-size: 13px; color: var(--muted); }
-  .failed { margin-top: 8px; font-size: 13px; color: var(--error-fg); }
-  .review { margin-top: 6px; font-size: 12px; color: #8a6d1a; }
-  .authored { margin-top: 8px; font-size: 13px; color: #14532d; background: #ecfdf3; border: 1px solid #bbe7cb; border-radius: 6px; padding: 8px 10px; }
-  form.reject { margin-top: 8px; }
-  form.reject button { padding: 6px 14px; font-size: 13px; border: 1px solid var(--error-fg); border-radius: 6px; background: #fff; color: var(--error-fg); cursor: pointer; }
-  form.describe { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; }
-  .notmatch { margin-top: 8px; font-size: 13px; color: #999; }
-  form.describe button { padding: 6px 14px; font-size: 13px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
-  @media (max-width: 600px) {
-    header { padding: 12px 14px; }
-    header nav { gap: 12px; flex-wrap: wrap; }
-    .banner { padding: 8px 14px; }
-    .meta { padding: 10px 14px 0; }
-    ul.results { padding: 10px 14px 24px; }
-    li.card { padding: 10px; gap: 10px; }
-    li.card img { width: 72px; height: 72px; }
-    form.describe { flex-direction: column; align-items: stretch; }
-    form.reject button, form.describe button { width: 100%; padding: 10px 14px; }
-  }
-</style>
+<script>(function(){var t=localStorage.getItem('bt-theme');if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t);})();</script>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>$summary</h1>
-  <nav>
-    <a href="/searches">All bargain searches</a>
-    <a href="/chat?id=$search_id">Refine in chat</a>
-    <a href="/raw">Raw keyword search</a>
-  </nav>
-</header>
+<nav class="navbar">
+  <a class="brand" href="/">BoldTrader</a>
+  <div class="links">
+    <a href="/searches">Bargain Searches</a>
+    <a href="/chat?id=$search_id">Refine in Chat</a>
+    <a href="/raw">Raw Search</a>
+  </div>
+  <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+</nav>
 $banner
 <div class="meta">
-  <div>$count listings · $status</div>
+  <div><strong>$summary</strong> · $count listings · $status</div>
   <div class="toggles">$toggles</div>
 </div>
 <ul class="results">
