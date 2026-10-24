@@ -304,6 +304,11 @@ def render_searches_page(searches: list[dict], banner: str = "") -> str:
             f'<span class="status">{html.escape(s["status_shown"])}</span>'
             f'<span class="count">{s["match_count"]} matches</span>'
             f'<span class="updated">{html.escape(s["updated_at"])}</span>'
+            f'<form class="del" method="post" action="/delete" '
+            f'onsubmit="return confirm(\'Delete this bargain search?\');">'
+            f'<input type="hidden" name="search_id" value="{s["id"]}">'
+            '<button type="submit">Delete</button>'
+            "</form>"
             "</li>"
         )
     return _list_template.substitute(

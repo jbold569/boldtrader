@@ -173,11 +173,12 @@ def _persist_and_triage(
 
 def _refresh_progress(conn: sqlite3.Connection, search_id: int) -> None:
     """Flip an 'enriching' search to 'complete' once its queue has drained."""
-    verdicts = json.loads(
-        conn.execute(
-            "SELECT listing_ids FROM bargain_searches WHERE id=?", (search_id,)
-        ).fetchone()[0]
-    )
+    row = conn.execute(
+        "SELECT listing_ids FROM bargain_searches WHERE id=?", (search_id,)
+    ).fetchone()
+    if row is None:
+        return  # search was deleted mid-flight
+    verdicts = json.loads(row[0])
     if not verdicts:
         return
     ids = list(verdicts)

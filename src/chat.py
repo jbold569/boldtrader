@@ -239,3 +239,15 @@ def load_transcript(conn: sqlite3.Connection, search_id: int) -> list[dict]:
         (search_id,),
     ).fetchall()
     return [{"role": r[0], "content": r[1]} for r in rows]
+
+
+def delete_search(conn: sqlite3.Connection, search_id: int) -> None:
+    """Delete a Bargain Search and its own rows.
+
+    Listings and enrichments are shared across searches and stay; only the
+    search's own records (search, transcript, rejects) are removed.
+    """
+    conn.execute("DELETE FROM rejects WHERE bargain_search_id=?", (search_id,))
+    conn.execute("DELETE FROM conversations WHERE bargain_search_id=?", (search_id,))
+    conn.execute("DELETE FROM bargain_searches WHERE id=?", (search_id,))
+    conn.commit()

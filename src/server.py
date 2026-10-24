@@ -333,6 +333,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_reject_post()
         elif parsed.path == "/describe":
             self._handle_describe_post()
+        elif parsed.path == "/delete":
+            self._handle_delete_post()
         else:
             self._send(404, "Not found")
 
@@ -537,6 +539,24 @@ class Handler(BaseHTTPRequestHandler):
                 price_filter=(form.get("price") or [""])[0] == "1",
                 banner="Authored description saved.",
             ),
+        )
+
+    def _handle_delete_post(self) -> None:
+        """Delete a Bargain Search and return to the list page."""
+        form = self._read_form()
+        sid = (form.get("search_id") or [""])[0]
+        if not sid:
+            self._send(400, "Missing search_id")
+            return
+        conn = get_connection()
+        try:
+            chat_mod.delete_search(conn, int(sid))
+            searches = enhanced.list_searches(conn)
+        finally:
+            conn.close()
+        self._send(
+            200,
+            enhanced.render_searches_page(searches, banner=f"Deleted bargain search #{sid}."),
         )
 
     def _send(self, status: int, body: str) -> None:
