@@ -23,6 +23,18 @@ class Listing:
 
 
 @dataclass
+class ListingDetail:
+    """Full record of one Listing for Enrichment: what the search tile omits.
+
+    shipping_cost is None where the marketplace doesn't expose shipping/fees.
+    """
+
+    description: str = ""
+    images: list[str] = field(default_factory=list)
+    shipping_cost: float | None = None
+
+
+@dataclass
 class SearchResult:
     """One page of Listings returned by a Search."""
 
@@ -52,3 +64,11 @@ class Marketplace(ABC):
         location is a human place name (city, ZIP, metro). Marketplaces that
         are geo-scoped (OfferUp) require it; keyword-only ones ignore it.
         """
+
+    def fetch_detail(self, listing: Listing) -> ListingDetail:
+        """Fetch the full listing record (description, images, shipping/fees).
+
+        Raises on any failure; callers degrade the listing to triage-only
+        with "enrichment unavailable". One marketplace never blocks the pipeline.
+        """
+        raise NotImplementedError(f"{self.name} does not implement fetch_detail")

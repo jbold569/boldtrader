@@ -12,7 +12,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-from .marketplace import Listing, Marketplace, SearchResult
+from .marketplace import Listing, ListingDetail, Marketplace, SearchResult
 
 PAGE_SIZE = 50  # eBay's _ipg param
 
@@ -68,6 +68,43 @@ class EbayScraper(Marketplace):
         resp = self._session.get(self.base_url, params=params, timeout=15)
         resp.raise_for_status()
         return self._parse(resp.text, page)
+
+    def fetch_detail(self, listing: Listing) -> ListingDetail:
+        resp = self._session.get(listing.url, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # eBay puts the seller description in a cross-origin iframe on ebaydesc.com.
+        description = ""
+        desc_frame = soup.find("iframe", src=re.compile(r"itm\.ebaydesc\.com"))
+        if desc_frame and desc_frame.get("src"):
+            fr = self._session.get(desc_frame["src"], timeout=15)
+            fr.raise_for_status()
+            description = BeautifulSoup(fr.text, "html.parser").get_text("\n", strip=True)
+
+        images: list[str] = []
+        for im in soup.find_all("img"):
+            src = im.get("src") or im.get("data-src") or ""
+            if "ebayimg" in src and ("s-l1600" in src or "$_1" in src):
+                src = src.split("?")[0]
+                if src not in images:
+                    images.append(src)
+
+        shipping_cost = None
+        ship_el = soup.select_one(".ux-labels-values--shipping .ux-labels-values__values")
+        if ship_el:
+            text = ship_el.get_text(" ", strip=True)
+            if text.lower().startswith("free"):
+                shipping_cost = 0.0
+            else:
+                m = re.search(r"\$\s*([\d,]+(?:\.\d{1,2})?)", text)
+                shipping_cost = _parse_price(m.group(1)) if m else None
+
+        return ListingDetail(
+            description=description,
+            images=images,
+            shipping_cost=shipping_cost,
+        )
 
     def _parse(self, html: str, page: int) -> SearchResult:
         soup = BeautifulSoup(html, "html.parser")

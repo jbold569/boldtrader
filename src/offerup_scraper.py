@@ -16,7 +16,7 @@ import secrets
 
 import requests
 
-from .marketplace import Listing, Marketplace, SearchResult
+from .marketplace import Listing, ListingDetail, Marketplace, SearchResult
 
 PAGE_SIZE = 50
 _GRAPHQL_URL = "https://offerup.com/api/graphql"
@@ -45,6 +45,18 @@ query GetModularFeed($searchParams: [SearchParam], $debug: Boolean = false) {
       }
     }
     pageCursor
+  }
+}
+"""
+
+# Detail query: full description, photos, shipping rate. Verified anonymous 2026-10-24.
+_DETAIL_QUERY = """
+query ListingDetail($listingId: ID!) {
+  listing(listingId: $listingId) {
+    description
+    price
+    shippingRate { price }
+    photos { uuid detail { url } }
   }
 }
 """
@@ -99,6 +111,47 @@ class OfferupScraper(Marketplace):
         listings, cursor = self._fetch(query, cursor, lat, lon)
         self._cursors[(query.lower(), page)] = cursor
         return self._build(listings, page, cursor)
+
+    def fetch_detail(self, listing: Listing) -> ListingDetail:
+        resp = self._session.post(
+            _GRAPHQL_URL,
+            json={
+                "operationName": "ListingDetail",
+                "query": _DETAIL_QUERY,
+                "variables": {"listingId": listing.id},
+            },
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": _UA,
+                "x-ou-operation-name": "ListingDetail",
+                "x-ou-d-token": "web-" + secrets.token_hex(28),
+                "x-ou-version": "2026.1.0",
+            },
+            timeout=15,
+        )
+        if resp.status_code in (403, 429):
+            raise RuntimeError(f"OfferUp blocked the request (HTTP {resp.status_code})")
+        resp.raise_for_status()
+
+        data = resp.json()
+        if "errors" in data:
+            raise RuntimeError(f"OfferUp GraphQL error: {data['errors'][0]['message']}")
+
+        rec = (data.get("data") or {}).get("listing")
+        if not rec:
+            raise RuntimeError(f"OfferUp returned no detail for {listing.id}")
+
+        images = [
+            (ph.get("detail") or {}).get("url")
+            for ph in rec.get("photos") or []
+            if (ph.get("detail") or {}).get("url")
+        ]
+        rate = rec.get("shippingRate") or {}
+        return ListingDetail(
+            description=rec.get("description") or "",
+            images=images,
+            shipping_cost=_to_price(rate.get("price")),
+        )
 
     def _build(self, listings: list[Listing], page: int, cursor) -> SearchResult:
         n = len(listings)

@@ -20,7 +20,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-from .marketplace import Listing, Marketplace, SearchResult
+from .marketplace import Listing, ListingDetail, Marketplace, SearchResult
 
 PROFILE_DIR = Path(__file__).resolve().parent.parent / ".fb-profile"
 LOGIN_URL = "https://www.facebook.com/login/"
@@ -101,6 +101,36 @@ class FacebookScraper(Marketplace):
             html = pg.content()
             ctx.close()
         return self._parse(html, page)
+
+    def fetch_detail(self, listing: Listing) -> ListingDetail:
+        # Best-effort: meta tags carry the description and first photo and are
+        # far more stable than FB's rotating DOM classes.
+        url = listing.url.split("&ref")[0]
+        if not url.startswith("http"):
+            url = "https://www.facebook.com" + url
+        with sync_playwright() as p:
+            ctx = p.chromium.launch_persistent_context(str(PROFILE_DIR), headless=self._headless)
+            pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+            try:
+                pg.goto(url, wait_until="domcontentloaded", timeout=30000)
+                pg.wait_for_selector("meta[property='og:description']", state="attached", timeout=15000)
+                html = pg.content()
+            finally:
+                ctx.close()
+        soup = BeautifulSoup(html, "html.parser")
+
+        desc = ""
+        md = soup.find("meta", attrs={"property": "og:description"})
+        if md and md.get("content"):
+            desc = md["content"]
+
+        images: list[str] = []
+        og_img = soup.find("meta", attrs={"property": "og:image"})
+        if og_img and og_img.get("content"):
+            images.append(og_img["content"])
+
+        # FB marketplace exposes no shipping/fees.
+        return ListingDetail(description=desc, images=images, shipping_cost=None)
 
     def _parse(self, html: str, page: int) -> SearchResult:
         soup = BeautifulSoup(html, "html.parser")
