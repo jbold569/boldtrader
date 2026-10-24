@@ -37,22 +37,23 @@ def fan_out(
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT queries, product_identity FROM bargain_searches WHERE id=?",
+            "SELECT queries, product_identity, exclusions FROM bargain_searches WHERE id=?",
             (search_id,),
         ).fetchone()
         if row is None:
             return
         queries = json.loads(row[0])
         product_identity = row[1]
+        exclusions = json.loads(row[2])
         conn.execute(
-            "UPDATE bargain_searches SET status='running', listing_ids='[]' WHERE id=?",
+            "UPDATE bargain_searches SET status='running', listing_ids='{}' WHERE id=?",
             (search_id,),
         )
         conn.commit()
     finally:
         conn.close()
 
-    queued: list[str] = []
+    verdicts: dict[str, str] = {}
     lock = threading.Lock()
 
     def run(name: str, mp: Marketplace) -> None:
@@ -65,12 +66,12 @@ def fan_out(
                         result = mp.search(query, page, location)
                     except Exception:
                         break  # this query/marketplace failed; keep the others
-                    new_ids = _persist_and_triage(
-                        mconn, result.listings, name, product_identity
+                    new_verdicts = _persist_and_triage(
+                        mconn, result.listings, name, product_identity, exclusions
                     )
                     with lock:
-                        queued.extend(new_ids)
-                        snapshot = json.dumps(queued)
+                        verdicts.update(new_verdicts)
+                        snapshot = json.dumps(verdicts)
                     mconn.execute(
                         "UPDATE bargain_searches SET listing_ids=? WHERE id=?",
                         (snapshot, search_id),
@@ -90,9 +91,10 @@ def fan_out(
 
     conn = get_connection()
     try:
+        queued_any = any(v in ("match", "unsure") for v in verdicts.values())
         conn.execute(
             "UPDATE bargain_searches SET status=? WHERE id=?",
-            ("enriching" if queued else "complete", search_id),
+            ("enriching" if queued_any else "complete", search_id),
         )
         conn.commit()
     finally:
@@ -104,12 +106,15 @@ def _persist_and_triage(
     listings: list[Listing],
     marketplace: str,
     product_identity: str,
-) -> list[str]:
+    exclusions: list[str],
+) -> dict[str, str]:
     """Store new listings; queue the ones triage calls match/unsure.
 
-    Returns the listing ids that entered the enrichment queue.
+    Returns {listing_id: verdict} for the new listings in this batch.
+    Not-matches stay in the pass-through view but never enter the
+    enhanced view.
     """
-    queued: list[str] = []
+    verdicts: dict[str, str] = {}
     for listing in listings:
         listing.marketplace = marketplace
         lid = f"{marketplace}:{listing.id}"
@@ -121,7 +126,7 @@ def _persist_and_triage(
             continue  # already seen; not new
         summary = " ".join(x for x in (listing.title, listing.snippet) if x)
         try:
-            verdict = router.triage(summary, product_identity)
+            verdict = router.triage(summary, product_identity, exclusions=exclusions)
         except Exception:
             verdict = "unsure"  # never silently drop on a triage error
         if verdict in ("match", "unsure"):
@@ -129,19 +134,20 @@ def _persist_and_triage(
                 "INSERT OR IGNORE INTO enrichments (listing_id, status) VALUES (?, 'pending')",
                 (lid,),
             )
-            queued.append(lid)
-    return queued
+        verdicts[lid] = verdict
+    return verdicts
 
 
 def _refresh_progress(conn: sqlite3.Connection, search_id: int) -> None:
     """Flip an 'enriching' search to 'complete' once its queue has drained."""
-    ids = json.loads(
+    verdicts = json.loads(
         conn.execute(
             "SELECT listing_ids FROM bargain_searches WHERE id=?", (search_id,)
         ).fetchone()[0]
     )
-    if not ids:
+    if not verdicts:
         return
+    ids = list(verdicts)
     placeholders = ",".join("?" * len(ids))
     pending = conn.execute(
         f"SELECT COUNT(*) FROM enrichments "

@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
     exclusions TEXT NOT NULL DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',
-    listing_ids TEXT NOT NULL DEFAULT '[]',
+    listing_ids TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE TABLE IF NOT EXISTS listings (
     id TEXT PRIMARY KEY,
     raw TEXT NOT NULL,
+    authored_description TEXT,
     first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -81,7 +82,12 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(bargain_searches)")}
     if "listing_ids" not in cols:
         conn.execute(
-            "ALTER TABLE bargain_searches ADD COLUMN listing_ids TEXT NOT NULL DEFAULT '[]'"
+            "ALTER TABLE bargain_searches ADD COLUMN listing_ids TEXT NOT NULL DEFAULT '{}'"
         )
+        conn.commit()
+    # Migrate DBs created before authored_description existed.
+    lcols = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
+    if "authored_description" not in lcols:
+        conn.execute("ALTER TABLE listings ADD COLUMN authored_description TEXT")
         conn.commit()
     return conn

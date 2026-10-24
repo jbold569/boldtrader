@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from . import chat as chat_mod
+from . import enhanced
 from .db import get_connection, init_db
 from .ebay_scraper import EbayScraper
 from .facebook_scraper import FacebookScraper
@@ -258,6 +259,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/chat":
             self._handle_chat_get(parsed)
             return
+        if parsed.path == "/search":
+            self._handle_enhanced_get(parsed)
+            return
+        if parsed.path == "/searches":
+            self._handle_searches_get()
+            return
         if parsed.path not in ("/", "/index.html"):
             self._send(404, "Not found")
             return
@@ -318,6 +325,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_chat_post()
         elif parsed.path == "/confirm":
             self._handle_confirm_post()
+        elif parsed.path == "/reject":
+            self._handle_reject_post()
+        elif parsed.path == "/describe":
+            self._handle_describe_post()
         else:
             self._send(404, "Not found")
 
@@ -428,6 +439,98 @@ class Handler(BaseHTTPRequestHandler):
         threading.Thread(
             target=fan_out, args=(self.fanout_marketplaces, new_id), daemon=True
         ).start()
+
+    def _handle_enhanced_get(self, parsed) -> None:
+        """Enhanced view: match-filtered cards with enrichment annotations."""
+        qs = parse_qs(parsed.query)
+        sid = (qs.get("id") or [""])[0]
+        if not sid:
+            self._send(404, "Missing search id")
+            return
+        show_all = (qs.get("all") or [""])[0] == "1"
+        price_filter = (qs.get("price") or [""])[0] == "1"
+        conn = get_connection()
+        try:
+            state = enhanced.view_cards(conn, int(sid), show_all=show_all, price_filter=price_filter)
+        finally:
+            conn.close()
+        if state is None:
+            self._send(404, f"No bargain search with id {sid}")
+            return
+        self._send(200, enhanced.render_enhanced_page(state, show_all=show_all, price_filter=price_filter))
+
+    def _handle_searches_get(self) -> None:
+        """Bargain Search list page."""
+        conn = get_connection()
+        try:
+            searches = enhanced.list_searches(conn)
+        finally:
+            conn.close()
+        self._send(200, enhanced.render_searches_page(searches))
+
+    def _handle_reject_post(self) -> None:
+        """Reject a card: record it and feed the exclusion list."""
+        form = self._read_form()
+        sid = (form.get("search_id") or [""])[0]
+        lid = (form.get("listing_id") or [""])[0]
+        reason = (form.get("reason") or [""])[0]
+        if not sid or not lid:
+            self._send(400, "Missing search_id or listing_id")
+            return
+        conn = get_connection()
+        try:
+            enhanced.reject_listing(conn, int(sid), lid, reason)
+            state = enhanced.view_cards(
+                conn, int(sid),
+                show_all=(form.get("all") or [""])[0] == "1",
+                price_filter=(form.get("price") or [""])[0] == "1",
+            )
+        finally:
+            conn.close()
+        if state is None:
+            self._send(404, f"No bargain search with id {sid}")
+            return
+        self._send(
+            200,
+            enhanced.render_enhanced_page(
+                state,
+                show_all=(form.get("all") or [""])[0] == "1",
+                price_filter=(form.get("price") or [""])[0] == "1",
+                banner=f"Rejected: {reason}",
+            ),
+        )
+
+    def _handle_describe_post(self) -> None:
+        """Save an authored description on a listing card."""
+        form = self._read_form()
+        sid = (form.get("search_id") or [""])[0]
+        lid = (form.get("listing_id") or [""])[0]
+        text = (form.get("description") or [""])[0]
+        if not sid or not lid:
+            self._send(400, "Missing search_id or listing_id")
+            return
+        conn = get_connection()
+        try:
+            enhanced.set_authored_description(conn, lid, text)
+            state = enhanced.view_cards(
+                conn, int(sid),
+                show_all=(form.get("all") or [""])[0] == "1",
+                price_filter=(form.get("price") or [""])[0] == "1",
+            )
+        finally:
+            conn.close()
+        if state is None:
+            self._send(404, f"No bargain search with id {sid}")
+            return
+        self._send(
+            200,
+            enhanced.render_enhanced_page(
+                state,
+                show_all=(form.get("all") or [""])[0] == "1",
+                price_filter=(form.get("price") or [""])[0] == "1",
+                banner="Authored description saved.",
+            ),
+        )
 
     def _send(self, status: int, body: str) -> None:
         data = body.encode("utf-8")

@@ -139,7 +139,12 @@ def enrich(listing_text: str, model: str = ENRICH_MODEL) -> dict:
     return _validate_enrichment(_extract_json(content))
 
 
-def triage(listing_summary: str, product_identity: str, model: str = TRIAGE_MODEL) -> str:
+def triage(
+    listing_summary: str,
+    product_identity: str,
+    model: str = TRIAGE_MODEL,
+    exclusions: list[str] | None = None,
+) -> str:
     """Judge one listing against a Bargain Search's product identity.
 
     Returns "match", "not_match", or "unsure". Interim implementation: chat
@@ -151,6 +156,8 @@ def triage(listing_summary: str, product_identity: str, model: str = TRIAGE_MODE
         "Reply with exactly one word: match, not_match, or unsure. "
         "If the listing could be the product but the text is too vague to tell, say unsure."
     )
+    if exclusions:
+        system += " Never match these: " + "; ".join(exclusions) + "."
     user = f"Wanted product: {product_identity}\nListing: {listing_summary}"
     content = _chat(
         [

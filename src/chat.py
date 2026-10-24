@@ -166,8 +166,8 @@ def next_reply(
 def create_search(conn: sqlite3.Connection, draft: dict) -> int:
     """Sign the contract: insert the confirmed draft as a new Bargain Search."""
     cur = conn.execute(
-        "INSERT INTO bargain_searches (summary, product_identity, target_price, queries, exclusions) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO bargain_searches (summary, product_identity, target_price, queries, exclusions, listing_ids) "
+        "VALUES (?, ?, ?, ?, ?, '{}')",
         (
             draft["summary"],
             draft["product_identity"],
