@@ -19,7 +19,9 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from . import chat as chat_mod
 from .db import get_connection, init_db
+from .ebay_scraper import EbayScraper
 from .facebook_scraper import FacebookScraper
+from .fanout import enrichment_worker, fan_out
 from .marketplace import Listing, Marketplace, SearchResult
 from .offerup_scraper import OfferupScraper
 
@@ -247,6 +249,7 @@ def render_chat_page(
 
 class Handler(BaseHTTPRequestHandler):
     marketplaces: dict[str, Marketplace]
+    fanout_marketplaces: dict[str, Marketplace]
     default_market: str
     cache: _Cache
 
@@ -422,6 +425,9 @@ class Handler(BaseHTTPRequestHandler):
                 banner=f"Bargain Search #{new_id} saved (v{search['version']}).",
             ),
         )
+        threading.Thread(
+            target=fan_out, args=(self.fanout_marketplaces, new_id), daemon=True
+        ).start()
 
     def _send(self, status: int, body: str) -> None:
         data = body.encode("utf-8")
@@ -449,8 +455,17 @@ def main() -> None:
         "offerup": OfferupScraper(),
         "facebook": FacebookScraper(),
     }
+    Handler.fanout_marketplaces = {
+        "ebay": EbayScraper(),
+        "offerup": OfferupScraper(),
+        "facebook": FacebookScraper(),
+    }
     Handler.default_market = args.market
     Handler.cache = _Cache(CACHE_TTL_SECONDS)
+
+    threading.Thread(
+        target=enrichment_worker, args=(Handler.fanout_marketplaces,), daemon=True
+    ).start()
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"BoldTrader serving on http://{args.host}:{args.port}/?q=HP+Z440&loc=Dallas%2C+TX&m={args.market}")

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
     exclusions TEXT NOT NULL DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',
+    listing_ids TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -76,4 +77,11 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     """Create all tables if missing (idempotent). Returns an open connection."""
     conn = get_connection(path)
     conn.executescript(SCHEMA)
+    # Migrate DBs created before listing_ids existed.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(bargain_searches)")}
+    if "listing_ids" not in cols:
+        conn.execute(
+            "ALTER TABLE bargain_searches ADD COLUMN listing_ids TEXT NOT NULL DEFAULT '[]'"
+        )
+        conn.commit()
     return conn
