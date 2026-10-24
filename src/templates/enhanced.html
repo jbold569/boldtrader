@@ -17,7 +17,9 @@
   .meta .toggles { margin-top: 4px; }
   .meta .toggles a { color: var(--accent); text-decoration: none; }
   ul.results { list-style: none; margin: 0; padding: 12px 24px 32px; display: grid; gap: 12px; }
-  li.card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  li.card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; gap: 14px; align-items: flex-start; }
+  li.card img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: #fff; flex: 0 0 auto; }
+  li.card .body { flex: 1; min-width: 0; }
   li.card .titlerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   li.card a.title { font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; }
   li.card a.title:hover { text-decoration: underline; }
@@ -43,7 +45,8 @@
     .banner { padding: 8px 14px; }
     .meta { padding: 10px 14px 0; }
     ul.results { padding: 10px 14px 24px; }
-    li.card { padding: 10px; }
+    li.card { padding: 10px; gap: 10px; }
+    li.card img { width: 72px; height: 72px; }
     form.describe { flex-direction: column; align-items: stretch; }
     form.reject button, form.describe button { width: 100%; padding: 10px 14px; }
   }

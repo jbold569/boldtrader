@@ -77,8 +77,10 @@ def fan_out(
                             search_id, name, query, page, exc,
                         )
                         break  # this query/marketplace failed; keep the others
+                    with lock:
+                        known = set(verdicts)
                     new_verdicts = _persist_and_triage(
-                        mconn, result.listings, name, product_identity, exclusions
+                        mconn, result.listings, name, product_identity, exclusions, known
                     )
                     with lock:
                         verdicts.update(new_verdicts)
@@ -124,12 +126,17 @@ def _persist_and_triage(
     marketplace: str,
     product_identity: str,
     exclusions: list[str],
+    known_lids: set[str],
 ) -> dict[str, str]:
     """Store new listings; queue the ones triage calls match/unsure.
 
     Returns {listing_id: verdict} for the new listings in this batch.
     Not-matches stay in the pass-through view but never enter the
     enhanced view.
+
+    "Already seen" is per-search (known_lids), not global: a listing
+    persisted by another search still needs triaging for this one. The
+    listings table is a raw cache, not the dedup key.
 
     Three short write transactions with the slow triage calls in between:
     holding a SQLite write lock across LLM latency starves every other
@@ -140,12 +147,12 @@ def _persist_and_triage(
     for listing in listings:
         listing.marketplace = marketplace
         lid = f"{marketplace}:{listing.id}"
-        cur = conn.execute(
+        conn.execute(
             "INSERT OR IGNORE INTO listings (id, raw) VALUES (?, ?)",
             (lid, json.dumps(vars(listing))),
         )
-        if cur.rowcount == 0:
-            continue  # already seen; not new
+        if lid in known_lids:
+            continue  # already triaged for this search
         summary = " ".join(x for x in (listing.title, listing.snippet) if x)
         new_listings.append((lid, summary))
     conn.commit()

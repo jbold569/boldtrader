@@ -79,6 +79,7 @@ def view_cards(
                 "url": data.get("url") or "",
                 "price": price,
                 "marketplace": data.get("marketplace") or "",
+                "image_url": data.get("image_url") or "",
                 "verdict": verdicts.get(lid, "match"),
                 "enrich_status": estatus or "pending",
                 "product": json.loads(product) if product else None,
@@ -210,7 +211,12 @@ def _render_card(card: dict, search_id: int) -> str:
         "<button type=\"submit\">Save description</button>"
         "</form>"
     )
-    return f'<li class="card">{"".join(parts)}</li>'
+    img = (
+        f'<img src="{html.escape(card["image_url"])}" alt="">'
+        if card["image_url"]
+        else ""
+    )
+    return f'<li class="card">{img}<div class="body">{"".join(parts)}</div></li>'
 
 
 def _view_link(search_id: int, show_all: bool, price_filter: bool) -> str:
