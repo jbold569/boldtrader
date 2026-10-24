@@ -8,6 +8,7 @@ Bargain Search chat: /chat  (refine an existing search: /chat?id=N)
 from __future__ import annotations
 
 import argparse
+import logging
 import html
 import json
 import string
@@ -559,6 +560,10 @@ def main() -> None:
                         help="default marketplace; override per-request with &m=")
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     init_db().close()
     Handler.marketplaces = {
         "offerup": OfferupScraper(),

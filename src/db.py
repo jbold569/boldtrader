@@ -68,9 +68,10 @@ def db_path() -> Path:
 
 
 def get_connection(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
-    """Open a connection with foreign keys enforced."""
-    conn = sqlite3.connect(path if path is not None else db_path())
+    """Open a connection with foreign keys enforced and a generous busy timeout."""
+    conn = sqlite3.connect(path if path is not None else db_path(), timeout=30.0)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 

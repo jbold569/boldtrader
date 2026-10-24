@@ -13,6 +13,7 @@ done, enrichment pending) -> 'complete' (queue drained).
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -20,6 +21,8 @@ import time
 from . import router
 from .db import get_connection
 from .marketplace import Listing, Marketplace
+
+log = logging.getLogger("boldtrader.fanout")
 
 
 def fan_out(
@@ -53,6 +56,10 @@ def fan_out(
     finally:
         conn.close()
 
+    log.info(
+        "fan-out #%s started: %d queries x %s @ %s",
+        search_id, len(queries), list(marketplaces), location,
+    )
     verdicts: dict[str, str] = {}
     lock = threading.Lock()
 
@@ -64,7 +71,11 @@ def fan_out(
                 while True:
                     try:
                         result = mp.search(query, page, location)
-                    except Exception:
+                    except Exception as exc:
+                        log.warning(
+                            "fan-out #%s: %s query %r page %d failed: %s",
+                            search_id, name, query, page, exc,
+                        )
                         break  # this query/marketplace failed; keep the others
                     new_verdicts = _persist_and_triage(
                         mconn, result.listings, name, product_identity, exclusions
@@ -80,6 +91,8 @@ def fan_out(
                     if page >= result.total_pages:
                         break
                     page += 1
+        except Exception:
+            log.exception("fan-out #%s: %s crashed", search_id, name)
         finally:
             mconn.close()
 
@@ -97,6 +110,10 @@ def fan_out(
             ("enriching" if queued_any else "complete", search_id),
         )
         conn.commit()
+        log.info(
+            "fan-out #%s done: %d listings, %s",
+            search_id, len(verdicts), "enriching" if queued_any else "complete",
+        )
     finally:
         conn.close()
 
@@ -113,8 +130,13 @@ def _persist_and_triage(
     Returns {listing_id: verdict} for the new listings in this batch.
     Not-matches stay in the pass-through view but never enter the
     enhanced view.
+
+    Three short write transactions with the slow triage calls in between:
+    holding a SQLite write lock across LLM latency starves every other
+    writer (the enrichment worker) and blows the busy timeout.
     """
-    verdicts: dict[str, str] = {}
+    # Phase 1: persist new listings, find which are actually new.
+    new_listings: list[tuple[str, str]] = []  # (lid, summary)
     for listing in listings:
         listing.marketplace = marketplace
         lid = f"{marketplace}:{listing.id}"
@@ -125,16 +147,27 @@ def _persist_and_triage(
         if cur.rowcount == 0:
             continue  # already seen; not new
         summary = " ".join(x for x in (listing.title, listing.snippet) if x)
+        new_listings.append((lid, summary))
+    conn.commit()
+
+    # Phase 2: triage outside any transaction (slow, no lock held).
+    verdicts: dict[str, str] = {}
+    for lid, summary in new_listings:
         try:
             verdict = router.triage(summary, product_identity, exclusions=exclusions)
-        except Exception:
+        except Exception as exc:
+            log.warning("triage failed for %s: %s (marking unsure)", lid, exc)
             verdict = "unsure"  # never silently drop on a triage error
+        verdicts[lid] = verdict
+
+    # Phase 3: queue match/unsure for enrichment.
+    for lid, verdict in verdicts.items():
         if verdict in ("match", "unsure"):
             conn.execute(
                 "INSERT OR IGNORE INTO enrichments (listing_id, status) VALUES (?, 'pending')",
                 (lid,),
             )
-        verdicts[lid] = verdict
+    conn.commit()
     return verdicts
 
 
@@ -159,6 +192,7 @@ def _refresh_progress(conn: sqlite3.Connection, search_id: int) -> None:
             "UPDATE bargain_searches SET status='complete' WHERE id=?", (search_id,)
         )
         conn.commit()
+        log.info("search #%s complete", search_id)
 
 
 def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], lid: str) -> None:
@@ -191,13 +225,16 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
                 ),
             )
             conn.commit()
+            log.info("enriched %s", lid)
             return
-        except Exception:
+        except Exception as exc:
+            log.warning("enrich attempt %d failed for %s: %s", attempt + 1, lid, exc)
             if attempt == 1:
                 conn.execute(
                     "UPDATE enrichments SET status='failed' WHERE listing_id=?", (lid,)
                 )
                 conn.commit()
+                log.warning("enrichment failed permanently for %s", lid)
 
 
 def enrichment_worker(
@@ -206,6 +243,7 @@ def enrichment_worker(
 ) -> None:
     """Single-concurrency loop draining pending enrichment rows. Restart-resumable."""
     conn = get_connection()
+    log.info("enrichment worker started")
     try:
         while True:
             row = conn.execute(
@@ -219,5 +257,6 @@ def enrichment_worker(
                 "SELECT id FROM bargain_searches WHERE status='enriching'"
             ).fetchall():
                 _refresh_progress(conn, srow[0])
-    finally:
-        conn.close()
+    except Exception:
+        log.exception("enrichment worker crashed; queue left for the next start")
+        raise
