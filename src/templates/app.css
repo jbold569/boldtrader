@@ -67,14 +67,31 @@ body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: var(
 /* ---- listing cards ---- */
 ul.results { list-style: none; margin: 0; padding: 12px 24px 32px; display: grid; gap: 12px; }
 li.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-li.card .head { display: flex; gap: 14px; align-items: center; }
-li.card .head img { width: 128px; height: 128px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--card); flex: 0 0 auto; }
-li.card .titlerow { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+/* data row: thumbnail ~30% / stacked info ~70% */
+li.card .data { display: flex; gap: 14px; align-items: flex-start; }
+li.card .data .thumb { flex: 0 0 30%; display: block; }
+li.card .data .thumb img { width: 100%; aspect-ratio: 1; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--card); }
+li.card .data .info { flex: 1 1 70%; min-width: 0; }
+li.card .titlerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 li.card a.title { font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; }
 li.card a.title:hover { text-decoration: underline; }
-li.card .price { font-size: 17px; font-weight: 700; flex: 0 0 auto; }
-li.card .cond { color: var(--muted); font-size: 13px; flex: 0 0 auto; }
-li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 8px; line-height: 1.45; }
+li.card .price { font-size: 17px; font-weight: 700; margin-top: 4px; }
+li.card .cond { color: var(--muted); font-size: 13px; margin-top: 2px; }
+li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 6px; line-height: 1.45; }
+li.card .jobline { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+li.card .job { font-size: 12px; margin: 0; }
+/* raw search page keeps the single header-row card */
+li.card .head { display: flex; gap: 14px; align-items: center; }
+li.card .head img { width: 128px; height: 128px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--card); flex: 0 0 auto; }
+/* buttons row: one button per half */
+li.card .btns { display: flex; gap: 12px; margin-top: 10px; }
+li.card .btns > * { flex: 1 1 50%; }
+li.card .btns form.reject { margin: 0; }
+li.card .btns button { width: 100%; padding: 8px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; }
+li.card .btns .edit-desc { border: 1px solid var(--accent); background: var(--card); color: var(--accent); }
+li.card .btns .edit-desc:hover { background: var(--accent); color: #fff; }
+li.card .btns form.reject button { border: 1px solid var(--error-fg); background: var(--card); color: var(--error-fg); }
+li.card .btns form.reject button:hover { background: var(--error-bg); }
 
 .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 8px; border-radius: 10px; color: #fff; }
 .badge-offerup { background: #1a7f37; }
@@ -84,16 +101,18 @@ li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 8px; line-
 /* ---- enhanced-view annotations ---- */
 .enriched { margin-top: 8px; font-size: 13px; color: var(--enriched-fg); background: var(--enriched-bg); border: 1px solid var(--enriched-border); border-radius: 6px; padding: 8px 10px; }
 .lowconf { margin-top: 6px; color: var(--warn-fg); font-size: 12px; }
-.pending { margin-top: 8px; font-size: 13px; color: var(--muted); }
-.failed { margin-top: 8px; font-size: 13px; color: var(--error-fg); }
 .review { font-size: 12px; color: var(--warn-fg); flex: 0 0 auto; }
-.authored { margin-top: 8px; font-size: 13px; color: var(--authored-fg); background: var(--authored-bg); border: 1px solid var(--authored-border); border-radius: 6px; padding: 8px 10px; }
 .notmatch { font-size: 12px; color: var(--notmatch-fg); flex: 0 0 auto; }
-form.reject { margin-top: 8px; }
-form.reject button { padding: 6px 14px; font-size: 13px; border: 1px solid var(--error-fg); border-radius: 6px; background: var(--card); color: var(--error-fg); cursor: pointer; }
-form.describe { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; }
-form.describe textarea { flex: 1; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); }
-form.describe button { padding: 6px 14px; font-size: 13px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+
+/* ---- description dialog ---- */
+#desc-dialog { border: 1px solid var(--border); border-radius: 8px; padding: 18px; max-width: 520px; width: 90%; background: var(--card); color: var(--fg); }
+#desc-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+#desc-dialog p.note { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+#desc-dialog textarea { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); }
+#desc-dialog .dlg-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+#desc-dialog .dlg-btns button { padding: 8px 18px; font-size: 14px; border-radius: 6px; cursor: pointer; }
+#desc-dialog #dlg-cancel { border: 1px solid var(--border); background: var(--card); color: var(--fg); }
+#desc-dialog button[type=submit] { border: 0; background: var(--accent); color: #fff; }
 
 /* ---- raw search page ---- */
 form.search { display: flex; gap: 8px; max-width: 560px; }
@@ -140,16 +159,14 @@ form.say button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 
   .banner { padding: 8px 14px; }
   .meta { padding: 10px 14px 0; }
   ul.results { padding: 10px 14px 24px; }
-  li.card { padding: 10px; gap: 10px; }
-  li.card img { width: 72px; height: 72px; }
+  li.card { padding: 10px; }
+  li.card .data .thumb { flex-basis: 40%; }
   form.search { flex-direction: column; }
   form.search input[type=text] { font-size: 16px; }
   nav.pager { padding: 8px 14px 24px; }
   nav.pager a, nav.pager span.cur, nav.pager span.disabled { padding: 8px 12px; }
   ul.searches { margin: 12px 14px 24px; }
   li.row { padding: 10px 12px; gap: 8px; }
-  form.describe { flex-direction: column; align-items: stretch; }
-  form.reject button, form.describe button { width: 100%; padding: 10px 14px; }
   .wrap { padding: 12px 14px 32px; }
   form.confirm input[type=text], form.confirm textarea, form.say textarea { font-size: 16px; }
   form.say { flex-direction: column; }

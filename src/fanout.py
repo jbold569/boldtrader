@@ -208,18 +208,19 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
 
     Retries once on failure; a second failure marks the row 'failed'.
     """
-    raw = conn.execute("SELECT raw FROM listings WHERE id=?", (lid,)).fetchone()
-    if raw is None:
+    row = conn.execute("SELECT raw, authored_description FROM listings WHERE id=?", (lid,)).fetchone()
+    if row is None:
         conn.execute("UPDATE enrichments SET status='failed' WHERE listing_id=?", (lid,))
         conn.commit()
         return
+    raw, authored = row[0], row[1] or ""
     for attempt in range(2):
         try:
-            listing = Listing(**json.loads(raw[0]))
+            listing = Listing(**json.loads(raw))
             mp = marketplaces[listing.marketplace]
             detail = mp.fetch_detail(listing)
             text = f"{listing.title}\n\n{detail.description}"
-            record = router.enrich(text)
+            record = router.enrich(text, authored=authored)
             conn.execute(
                 "UPDATE enrichments SET product=?, condition=?, bundle=?, confidence=?, "
                 "model=?, status='enriched' WHERE listing_id=?",

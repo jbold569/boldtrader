@@ -122,16 +122,27 @@ def _validate_enrichment(record: dict) -> dict:
     return record
 
 
-def enrich(listing_text: str, model: str = ENRICH_MODEL) -> dict:
+def enrich(listing_text: str, authored: str = "", model: str = ENRICH_MODEL) -> dict:
     """Extract Enrichment fields from full listing text via the big model.
+
+    `authored` is the user's own description of the listing, appended as
+    extra context — it supplements the listing text, and where the two
+    disagree the user's account wins (per the glossary: authored overrides
+    AI enrichment, so the model is told to trust it over the seller's text).
 
     Strict parse: a malformed or contract-violating response raises RouterError
     (a failed enrichment) — never a partial guess.
     """
+    user = listing_text
+    if authored.strip():
+        user += (
+            "\n\n---\nBuyer's note about this listing (trust this over the "
+            "seller's text where they disagree):\n" + authored.strip()
+        )
     content = _chat(
         [
             {"role": "system", "content": _ENRICH_SYSTEM},
-            {"role": "user", "content": listing_text},
+            {"role": "user", "content": user},
         ],
         model=model,
         max_tokens=1000,

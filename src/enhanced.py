@@ -118,11 +118,17 @@ def reject_listing(
 def set_authored_description(
     conn: sqlite3.Connection, listing_id: str, text: str
 ) -> None:
-    """Store the user's authored description (empty clears it)."""
+    """Store the user's authored description (empty clears it) and re-queue
+    the listing for enrichment so the AI result incorporates the new text."""
     text = (text or "").strip()
     conn.execute(
         "UPDATE listings SET authored_description=? WHERE id=?",
         (text or None, listing_id),
+    )
+    conn.execute(
+        "INSERT INTO enrichments (listing_id, status) VALUES (?, 'pending') "
+        "ON CONFLICT(listing_id) DO UPDATE SET status='pending'",
+        (listing_id,),
     )
     conn.commit()
 
@@ -173,53 +179,56 @@ def _render_card(card: dict, search_id: int) -> str:
         if card["marketplace"]
         else ""
     )
-    status = ""
+    verdict_chip = ""
     if card["verdict"] == "not_match":
-        status = '<span class="notmatch">not a match</span>'
+        verdict_chip = '<span class="notmatch">not a match</span>'
     elif card["verdict"] == "unsure":
-        status = '<span class="review">needs review</span>'
-    img = (
-        f'<img src="{html.escape(card["image_url"])}" alt="">'
+        verdict_chip = '<span class="review">needs review</span>'
+    job = {
+        "pending": '<span class="job job-pending">⏳ pending</span>',
+        "enriched": '<span class="job job-ok">✨ enriched</span>',
+        "failed": '<span class="job job-failed">❌ failed</span>',
+    }.get(card["enrich_status"], "")
+    jobline = (
+        f'<div class="jobline">{verdict_chip}{job}</div>'
+        if (verdict_chip or job)
+        else ""
+    )
+    ai_desc = (
+        _render_enrichment(card) if card["enrich_status"] == "enriched" else ""
+    )
+    thumb = (
+        f'<a class="thumb" href="{html.escape(card["url"])}" target="_blank" '
+        f'rel="noopener"><img src="{html.escape(card["image_url"])}" alt=""></a>'
         if card["image_url"]
         else ""
     )
-    head = (
-        f'<div class="head">{img}'
+    data = (
+        '<div class="data">'
+        f"{thumb}"
+        '<div class="info">'
         f'<div class="titlerow">{badge}'
         f'<a class="title" href="{html.escape(card["url"])}" target="_blank" '
         f'rel="noopener">{html.escape(card["title"])}</a></div>'
         f'<div class="price">{_fmt_price(card["price"])}</div>'
-        f"{status}</div>"
+        f"{ai_desc}{jobline}"
+        "</div></div>"
     )
-    parts: list[str] = [head]
-    if card["authored"]:
-        parts.append(f'<div class="authored">✍ {html.escape(card["authored"])}</div>')
-    elif card["enrich_status"] == "enriched":
-        parts.append(_render_enrichment(card))
-    elif card["enrich_status"] == "failed":
-        parts.append('<div class="failed">enrichment failed</div>')
-    else:
-        parts.append('<div class="pending">⏳ pending</div>')
-    if card["enrich_status"] == "enriched":
-        parts.append(
-            '<form class="reject" method="post" action="/reject">'
-            f'<input type="hidden" name="search_id" value="{search_id}">'
-            f'<input type="hidden" name="listing_id" value="{html.escape(card["id"])}">'
-            f'<input type="hidden" name="reason" value="{html.escape(_reject_reason(card))}">'
-            '<button type="submit">Reject</button>'
-            "</form>"
-        )
-    parts.append(
-        '<form class="describe" method="post" action="/describe">'
+    btns = (
+        '<div class="btns">'
+        f'<button type="button" class="edit-desc" '
+        f'data-listing-id="{html.escape(card["id"])}" '
+        f'data-current="{html.escape(card["authored"] or "")}">Edit description</button>'
+        '<form class="reject" method="post" action="/reject" '
+        'onsubmit="return confirm(\'Reject this listing?\');">'
         f'<input type="hidden" name="search_id" value="{search_id}">'
         f'<input type="hidden" name="listing_id" value="{html.escape(card["id"])}">'
-        '<textarea name="description" rows="2" '
-        'placeholder="Authored description — overrides AI enrichment">'
-        f'{html.escape(card["authored"] or "")}</textarea>'
-        "<button type=\"submit\">Save description</button>"
+        f'<input type="hidden" name="reason" value="{html.escape(_reject_reason(card))}">'
+        '<button type="submit">Reject</button>'
         "</form>"
+        "</div>"
     )
-    return f'<li class="card">{"".join(parts)}</li>'
+    return f'<li class="card">{data}{btns}</li>'
 
 
 def _view_link(search_id: int, show_all: bool, price_filter: bool) -> str:

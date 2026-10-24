@@ -26,3 +26,22 @@
     });
   });
 })();
+
+// Description dialog: "Edit description" buttons open the shared <dialog>
+// pre-filled with the listing's current authored text.
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var dlg = document.getElementById('desc-dialog');
+    if (!dlg) return;
+    document.querySelectorAll('.edit-desc').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('dlg-listing-id').value = btn.dataset.listingId;
+        document.getElementById('dlg-text').value = btn.dataset.current || '';
+        dlg.showModal();
+      });
+    });
+    document.getElementById('dlg-cancel').addEventListener('click', function () {
+      dlg.close();
+    });
+  });
+})();
