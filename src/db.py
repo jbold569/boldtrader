@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     summary TEXT NOT NULL,
     product_identity TEXT NOT NULL,
-    target_price REAL,
+    location TEXT NOT NULL DEFAULT 'Kenmore, WA',
     queries TEXT NOT NULL DEFAULT '[]',
     exclusions TEXT NOT NULL DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 1,
@@ -89,5 +89,11 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     lcols = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
     if "authored_description" not in lcols:
         conn.execute("ALTER TABLE listings ADD COLUMN authored_description TEXT")
+        conn.commit()
+    # Migrate DBs created before location existed.
+    if "location" not in cols:
+        conn.execute(
+            "ALTER TABLE bargain_searches ADD COLUMN location TEXT NOT NULL DEFAULT 'Kenmore, WA'"
+        )
         conn.commit()
     return conn

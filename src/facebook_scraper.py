@@ -49,7 +49,7 @@ _CITY_SLUGS = {
 
 def _city_slug(location: str | None) -> str:
     if not location:
-        return "dallas"
+        return "kenmore"
     loc = location.strip().lower()
     if loc in _CITY_SLUGS:
         return _CITY_SLUGS[loc]

@@ -222,7 +222,7 @@ class OfferupScraper(Marketplace):
     def _geocode(self, location: str | None) -> tuple[str, str]:
         """Resolve a location string to (lat, lon) via Nominatim. Cached."""
         if not location:
-            return "32.7767", "-96.7970"  # Dallas, TX default
+            return "47.7595", "-122.2462"  # Kenmore, WA default
         if location in self._geo:
             return self._geo[location]
         resp = self._session.get(

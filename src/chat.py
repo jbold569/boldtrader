@@ -26,7 +26,8 @@ Conversation rules:
   gen"). Never present a draft before the product identity is settled.
 - Once it is settled, present a draft: a one-line human-readable summary
   ("Core i5-8400 mini PCs, complete, <= $150"), the curated keyword queries,
-  any exclusions, and an optional target price.
+  any exclusions, an optional target price, and the search location (city, state
+  — ask the user where they want to search if they haven't said).
 - Curate queries the way a human buyer searches: plain layperson terms plus
   model numbers, 3 to 8 queries, each a phrase a seller might have typed.
 - Keep your visible reply short: at most a few sentences. Do NOT enumerate
@@ -41,7 +42,8 @@ prose after it, exactly this shape:
   "product_identity": "<the thing the user wants>",
   "queries": ["<keyword query>", "..."],
   "exclusions": ["<thing to exclude>", "..."],
-  "target_price": <number or null>
+  "target_price": <number or null>,
+  "location": "<city, state>"
 }
 ```
 """
@@ -106,6 +108,7 @@ def validate_draft(raw: dict) -> dict:
         "queries": [q.strip() for q in queries],
         "exclusions": [x.strip() for x in exclusions],
         "target_price": float(tp) if tp is not None else None,
+        "location": (raw.get("location") or "Kenmore, WA").strip() or "Kenmore, WA",
     }
 
 
@@ -131,6 +134,7 @@ def draft_from_form(form: dict) -> dict:
             "queries": items("queries"),
             "exclusions": items("exclusions"),
             "target_price": tp,
+            "location": (form.get("location") or [""])[0],
         }
     )
 
@@ -147,7 +151,8 @@ def _system_for(search: dict | None) -> str:
         f"product_identity={search['product_identity']!r}; "
         f"queries={search['queries']!r}; "
         f"exclusions={search['exclusions']!r}; "
-        f"target_price={tp if tp is not None else 'none'}. "
+        f"target_price={tp if tp is not None else 'none'}; "
+        f"location={search['location']!r}. "
         "The user is refining this search. When their new needs are clear, "
         "present a fresh full draft; confirming it replaces the search above."
     )
@@ -166,11 +171,12 @@ def next_reply(
 def create_search(conn: sqlite3.Connection, draft: dict) -> int:
     """Sign the contract: insert the confirmed draft as a new Bargain Search."""
     cur = conn.execute(
-        "INSERT INTO bargain_searches (summary, product_identity, target_price, queries, exclusions, listing_ids) "
-        "VALUES (?, ?, ?, ?, ?, '{}')",
+        "INSERT INTO bargain_searches (summary, product_identity, location, target_price, queries, exclusions, listing_ids) "
+        "VALUES (?, ?, ?, ?, ?, ?, '{}')",
         (
             draft["summary"],
             draft["product_identity"],
+            draft["location"],
             draft["target_price"],
             json.dumps(draft["queries"]),
             json.dumps(draft["exclusions"]),
@@ -183,11 +189,12 @@ def create_search(conn: sqlite3.Connection, draft: dict) -> int:
 def update_search(conn: sqlite3.Connection, search_id: int, draft: dict) -> None:
     """Refinement: replace the search fields and bump its version."""
     conn.execute(
-        "UPDATE bargain_searches SET summary=?, product_identity=?, target_price=?, "
+        "UPDATE bargain_searches SET summary=?, product_identity=?, location=?, target_price=?, "
         "queries=?, exclusions=?, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
         (
             draft["summary"],
             draft["product_identity"],
+            draft["location"],
             draft["target_price"],
             json.dumps(draft["queries"]),
             json.dumps(draft["exclusions"]),
@@ -199,7 +206,7 @@ def update_search(conn: sqlite3.Connection, search_id: int, draft: dict) -> None
 
 def get_search(conn: sqlite3.Connection, search_id: int) -> dict | None:
     row = conn.execute(
-        "SELECT id, summary, product_identity, target_price, queries, exclusions, version, status "
+        "SELECT id, summary, product_identity, location, target_price, queries, exclusions, version, status "
         "FROM bargain_searches WHERE id=?",
         (search_id,),
     ).fetchone()
@@ -209,11 +216,12 @@ def get_search(conn: sqlite3.Connection, search_id: int) -> dict | None:
         "id": row[0],
         "summary": row[1],
         "product_identity": row[2],
-        "target_price": row[3],
-        "queries": json.loads(row[4]),
-        "exclusions": json.loads(row[5]),
-        "version": row[6],
-        "status": row[7],
+        "location": row[3],
+        "target_price": row[4],
+        "queries": json.loads(row[5]),
+        "exclusions": json.loads(row[6]),
+        "version": row[7],
+        "status": row[8],
     }
 
 

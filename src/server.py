@@ -1,7 +1,7 @@
 """BoldTrader: marketplace search + Bargain Search chat authoring.
 
 Run:  .venv/bin/python -m src.server [--port 8000]
-Search: /?q=dell+desktop&loc=Dallas&m=all   (m: all|offerup|facebook)
+Search: /?q=dell+desktop&loc=Kenmore&m=all   (m: all|offerup|facebook)
 Bargain Search chat: /chat  (refine an existing search: /chat?id=N)
 """
 
@@ -228,6 +228,9 @@ def render_chat_page(
             f"{html.escape(chr(10).join(draft['exclusions']))}</textarea></label>"
             '<label>Target price (optional, e.g. 150)<input type="text" name="target_price" '
             f'value="{html.escape("" if tp is None else str(tp))}"></label>'
+            '<label>Location<input type="text" name="location" '
+            f'value="{html.escape(draft.get("location") or "Kenmore, WA")}" '
+            'placeholder="City, State"></label>'
             f'<input type="hidden" name="transcript" value="{html.escape(json.dumps(transcript))}">'
             f'<input type="hidden" name="search_id" value="{(search or {}).get("id", "")}">'
             "<button type=\"submit\">Confirm Bargain Search</button>"
@@ -412,6 +415,7 @@ class Handler(BaseHTTPRequestHandler):
                 "queries": (form.get("queries") or [""])[0].splitlines(),
                 "exclusions": (form.get("exclusions") or [""])[0].splitlines(),
                 "target_price": None,
+                "location": (form.get("location") or [""])[0],
             }
             self._send(200, render_chat_page(transcript, draft=echoed, banner=str(exc)))
             return
@@ -437,7 +441,9 @@ class Handler(BaseHTTPRequestHandler):
             ),
         )
         threading.Thread(
-            target=fan_out, args=(self.fanout_marketplaces, new_id), daemon=True
+            target=fan_out,
+            args=(self.fanout_marketplaces, new_id, search["location"]),
+            daemon=True,
         ).start()
 
     def _handle_enhanced_get(self, parsed) -> None:
@@ -571,7 +577,7 @@ def main() -> None:
     ).start()
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"BoldTrader serving on http://{args.host}:{args.port}/?q=HP+Z440&loc=Dallas%2C+TX&m={args.market}")
+    print(f"BoldTrader serving on http://{args.host}:{args.port}/?q=HP+Z440&loc=Kenmore%2C+WA&m={args.market}")
     server.serve_forever()
 
 
