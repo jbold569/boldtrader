@@ -19,6 +19,9 @@ ENRICH_MODEL = "qwen3.8-flash-next-w4b-q8-halogen"
 # triage runs the small-model prompt on the loaded chat model.
 TRIAGE_MODEL = ENRICH_MODEL
 
+# Chat authoring uses the same loaded model as enrichment (spec: chat + enrichment).
+CHAT_MODEL = ENRICH_MODEL
+
 TIMEOUT = 120  # seconds; enrichment reads 1-3k tokens per call
 
 # Canonical condition set (GLOSSARY.md).
@@ -161,3 +164,8 @@ def triage(listing_summary: str, product_identity: str, model: str = TRIAGE_MODE
     if label not in _LABELS:
         raise RouterError(f"triage returned {content!r}, not a valid label")
     return label
+
+
+def chat(messages: list[dict], model: str = CHAT_MODEL, max_tokens: int = 2000) -> str:
+    """Free-form chat completion (Bargain Search authoring)."""
+    return _chat(messages, model=model, max_tokens=max_tokens)

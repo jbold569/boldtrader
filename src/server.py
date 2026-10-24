@@ -1,12 +1,15 @@
-"""BoldTrader MVP: serve paginated marketplace search results on a local webpage.
+"""BoldTrader: marketplace search + Bargain Search chat authoring.
 
 Run:  .venv/bin/python -m src.server [--port 8000]
 Search: /?q=dell+desktop&loc=Dallas&m=all   (m: all|offerup|facebook)
+Bargain Search chat: /chat  (refine an existing search: /chat?id=N)
 """
 
 from __future__ import annotations
 
 import argparse
+import html
+import json
 import string
 import threading
 import time
@@ -14,14 +17,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
+from . import chat as chat_mod
+from .db import get_connection, init_db
 from .facebook_scraper import FacebookScraper
 from .marketplace import Listing, Marketplace, SearchResult
 from .offerup_scraper import OfferupScraper
 
+
 CACHE_TTL_SECONDS = 15 * 60
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
-
+CHAT_TEMPLATE_PATH = Path(__file__).parent / "templates" / "chat.html"
 _template = string.Template(TEMPLATE_PATH.read_text(encoding="utf-8"))
+_chat_template = string.Template(CHAT_TEMPLATE_PATH.read_text(encoding="utf-8"))
 
 
 class _Cache:
@@ -183,6 +190,61 @@ def render_page(
     )
 
 
+def render_chat_page(
+    transcript: list[dict],
+    draft: dict | None = None,
+    search: dict | None = None,
+    banner: str = "",
+) -> str:
+    """Render the authoring/refinement chat page.
+
+    `transcript` is the in-session message list; it travels through the page
+    in a hidden JSON field so the stateless server can continue the thread.
+    `draft`, when present, renders the confirmation form (contract signing).
+    """
+    msgs = []
+    for m in transcript:
+        cls = "user" if m["role"] == "user" else "assistant"
+        who = "You" if m["role"] == "user" else "BoldTrader"
+        msgs.append(
+            f'<div class="msg {cls}"><strong>{who}</strong>'
+            f"{html.escape(m['content'])}</div>"
+        )
+    if draft is not None:
+        tp = draft.get("target_price")
+        confirm = (
+            '<form class="confirm" method="post" action="/confirm">'
+            '<p class="note">Confirm this Bargain Search — edit anything inline first.</p>'
+            '<label>Summary<input type="text" name="summary" '
+            f'value="{html.escape(draft["summary"])}"></label>'
+            '<label>Product identity<input type="text" name="product_identity" '
+            f'value="{html.escape(draft["product_identity"])}"></label>'
+            '<label>Queries (one per line)<textarea name="queries" rows="5">'
+            f"{html.escape(chr(10).join(draft['queries']))}</textarea></label>"
+            '<label>Exclusions (one per line)<textarea name="exclusions" rows="3">'
+            f"{html.escape(chr(10).join(draft['exclusions']))}</textarea></label>"
+            '<label>Target price (optional, e.g. 150)<input type="text" name="target_price" '
+            f'value="{html.escape("" if tp is None else str(tp))}"></label>'
+            f'<input type="hidden" name="transcript" value="{html.escape(json.dumps(transcript))}">'
+            f'<input type="hidden" name="search_id" value="{(search or {}).get("id", "")}">'
+            "<button type=\"submit\">Confirm Bargain Search</button>"
+            "</form>"
+        )
+    else:
+        confirm = ""
+    heading = f"Refine: {search['summary']}" if search else "New bargain search"
+    return _chat_template.substitute(
+        heading=html.escape(heading),
+        banner=f'<div class="banner">{html.escape(banner)}</div>' if banner else "",
+        transcript="\n".join(msgs)
+        if msgs
+        else '<p class="empty">Tell me what you want to buy.</p>',
+        confirm=confirm,
+        transcript_json=html.escape(json.dumps(transcript)),
+        search_id=(search or {}).get("id", ""),
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     marketplaces: dict[str, Marketplace]
     default_market: str
@@ -190,6 +252,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
+        if parsed.path == "/chat":
+            self._handle_chat_get(parsed)
+            return
         if parsed.path not in ("/", "/index.html"):
             self._send(404, "Not found")
             return
@@ -244,6 +309,120 @@ class Handler(BaseHTTPRequestHandler):
         self.cache.put(key, result)
         self._send(200, render_page(query, result, location, banner=banner, source=market))
 
+    def do_POST(self) -> None:  # noqa: N802 (http.server API)
+        parsed = urlparse(self.path)
+        if parsed.path == "/chat":
+            self._handle_chat_post()
+        elif parsed.path == "/confirm":
+            self._handle_confirm_post()
+        else:
+            self._send(404, "Not found")
+
+    def _read_form(self) -> dict:
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        return parse_qs(body)
+
+    def _handle_chat_get(self, parsed) -> None:
+        """Open the chat: empty for a new search, DB transcript to refine one."""
+        search_id = (parse_qs(parsed.query).get("id") or [""])[0]
+        if not search_id:
+            self._send(200, render_chat_page([]))
+            return
+        conn = get_connection()
+        try:
+            search = chat_mod.get_search(conn, int(search_id))
+            if search is None:
+                self._send(404, f"No bargain search with id {search_id}")
+                return
+            transcript = chat_mod.load_transcript(conn, search["id"])
+        finally:
+            conn.close()
+        self._send(200, render_chat_page(transcript, search=search))
+
+    def _handle_chat_post(self) -> None:
+        """One authoring turn: LLM reply, draft if ready; persist when refining."""
+        form = self._read_form()
+        message = (form.get("message") or [""])[0].strip()
+        if not message:
+            self._send(200, render_chat_page([], banner="Type a message first."))
+            return
+        try:
+            transcript = json.loads((form.get("transcript") or ["[]"])[0])
+        except ValueError:
+            transcript = []
+        search_id = (form.get("search_id") or [""])[0]
+        search = None
+        conn = get_connection()
+        try:
+            if search_id:
+                search = chat_mod.get_search(conn, int(search_id))
+            try:
+                reply, draft = chat_mod.next_reply(transcript, message, search)
+            except Exception as exc:
+                self._send(
+                    200,
+                    render_chat_page(
+                        transcript,
+                        search=search,
+                        banner=f"Model call failed ({exc.__class__.__name__}); try again.",
+                    ),
+                )
+                return
+            transcript = transcript + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": reply},
+            ]
+            if search is not None:
+                chat_mod.append_message(conn, search["id"], "user", message)
+                chat_mod.append_message(conn, search["id"], "assistant", reply)
+        finally:
+            conn.close()
+        self._send(200, render_chat_page(transcript, draft=draft, search=search))
+
+    def _handle_confirm_post(self) -> None:
+        """Contract signing: create or refine the Bargain Search from the form."""
+        form = self._read_form()
+        search_id = (form.get("search_id") or [""])[0]
+        try:
+            transcript = json.loads((form.get("transcript") or ["[]"])[0])
+        except ValueError:
+            transcript = []
+        try:
+            draft = chat_mod.draft_from_form(form)
+        except chat_mod.DraftError as exc:
+            # Re-render the form with whatever was submitted, flagged.
+            echoed = {
+                "summary": (form.get("summary") or [""])[0],
+                "product_identity": (form.get("product_identity") or [""])[0],
+                "queries": (form.get("queries") or [""])[0].splitlines(),
+                "exclusions": (form.get("exclusions") or [""])[0].splitlines(),
+                "target_price": None,
+            }
+            self._send(200, render_chat_page(transcript, draft=echoed, banner=str(exc)))
+            return
+        conn = get_connection()
+        try:
+            if search_id:
+                chat_mod.update_search(conn, int(search_id), draft)
+                new_id = int(search_id)
+            else:
+                new_id = chat_mod.create_search(conn, draft)
+                for m in transcript:
+                    chat_mod.append_message(conn, new_id, m["role"], m["content"])
+            search = chat_mod.get_search(conn, new_id)
+            saved_transcript = chat_mod.load_transcript(conn, new_id)
+        finally:
+            conn.close()
+        self._send(
+            200,
+            render_chat_page(
+                saved_transcript,
+                search=search,
+                banner=f"Bargain Search #{new_id} saved (v{search['version']}).",
+            ),
+        )
+
     def _send(self, status: int, body: str) -> None:
         data = body.encode("utf-8")
         self.send_response(status)
@@ -265,6 +444,7 @@ def main() -> None:
                         help="default marketplace; override per-request with &m=")
     args = parser.parse_args()
 
+    init_db().close()
     Handler.marketplaces = {
         "offerup": OfferupScraper(),
         "facebook": FacebookScraper(),
