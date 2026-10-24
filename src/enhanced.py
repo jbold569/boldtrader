@@ -168,22 +168,30 @@ def _render_enrichment(card: dict) -> str:
 
 
 def _render_card(card: dict, search_id: int) -> str:
-    parts: list[str] = []
     badge = (
         f'<span class="badge badge-{card["marketplace"]}">{card["marketplace"]}</span>'
         if card["marketplace"]
         else ""
     )
-    parts.append(
+    status = ""
+    if card["verdict"] == "not_match":
+        status = '<span class="notmatch">not a match</span>'
+    elif card["verdict"] == "unsure":
+        status = '<span class="review">needs review</span>'
+    img = (
+        f'<img src="{html.escape(card["image_url"])}" alt="">'
+        if card["image_url"]
+        else ""
+    )
+    head = (
+        f'<div class="head">{img}'
         f'<div class="titlerow">{badge}'
         f'<a class="title" href="{html.escape(card["url"])}" target="_blank" '
         f'rel="noopener">{html.escape(card["title"])}</a></div>'
+        f'<div class="price">{_fmt_price(card["price"])}</div>'
+        f"{status}</div>"
     )
-    parts.append(f'<div class="price">{_fmt_price(card["price"])}</div>')
-    if card["verdict"] == "not_match":
-        parts.append('<div class="notmatch">not a match</div>')
-    elif card["verdict"] == "unsure":
-        parts.append('<div class="review">needs review</div>')
+    parts: list[str] = [head]
     if card["authored"]:
         parts.append(f'<div class="authored">✍ {html.escape(card["authored"])}</div>')
     elif card["enrich_status"] == "enriched":
@@ -211,12 +219,7 @@ def _render_card(card: dict, search_id: int) -> str:
         "<button type=\"submit\">Save description</button>"
         "</form>"
     )
-    img = (
-        f'<img src="{html.escape(card["image_url"])}" alt="">'
-        if card["image_url"]
-        else ""
-    )
-    return f'<li class="card">{img}<div class="body">{"".join(parts)}</div></li>'
+    return f'<li class="card">{"".join(parts)}</li>'
 
 
 def _view_link(search_id: int, show_all: bool, price_filter: bool) -> str:

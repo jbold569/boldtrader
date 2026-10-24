@@ -150,8 +150,6 @@ def _render_rows(result: SearchResult) -> str:
     rows = []
     for l in result.listings:
         meta = ""
-        if l.price is not None:
-            meta += f'<div class="price">${l.price:,.2f}</div>'
         if l.condition:
             sold = f" · {l.sold_count:,} sold" if l.sold_count else ""
             meta += f'<div class="cond">{l.condition}{sold}</div>'
@@ -162,12 +160,15 @@ def _render_rows(result: SearchResult) -> str:
             if l.marketplace
             else ""
         )
+        price = f'<div class="price">${l.price:,.2f}</div>' if l.price is not None else ""
         rows.append(
-            f'<li class="card">{img}<div class="body">'
+            f'<li class="card">'
+            f'<div class="head">{img}'
             f'<div class="titlerow">{badge}'
             f'<a class="title" href="{l.url}" target="_blank" rel="noopener">{l.title}</a></div>'
+            f"{price}</div>"
             f"{meta}{snippet}"
-            f"</div></li>"
+            f"</li>"
         )
     return "\n".join(rows) if rows else '<li class="card">No listings found.</li>'
 

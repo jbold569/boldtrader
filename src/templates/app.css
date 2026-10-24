@@ -66,15 +66,15 @@ body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: var(
 
 /* ---- listing cards ---- */
 ul.results { list-style: none; margin: 0; padding: 12px 24px 32px; display: grid; gap: 12px; }
-li.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; gap: 14px; align-items: flex-start; }
-li.card img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--card); flex: 0 0 auto; }
-li.card .body { flex: 1; min-width: 0; }
-li.card .titlerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+li.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+li.card .head { display: flex; gap: 14px; align-items: center; }
+li.card .head img { width: 128px; height: 128px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--card); flex: 0 0 auto; }
+li.card .titlerow { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 li.card a.title { font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; }
 li.card a.title:hover { text-decoration: underline; }
-li.card .price { font-size: 17px; font-weight: 700; margin-top: 4px; }
-li.card .cond { color: var(--muted); font-size: 13px; margin-top: 2px; }
-li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 6px; line-height: 1.45; }
+li.card .price { font-size: 17px; font-weight: 700; flex: 0 0 auto; }
+li.card .cond { color: var(--muted); font-size: 13px; flex: 0 0 auto; }
+li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 8px; line-height: 1.45; }
 
 .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 8px; border-radius: 10px; color: #fff; }
 .badge-offerup { background: #1a7f37; }
@@ -86,9 +86,9 @@ li.card .snippet { color: var(--fg-dim); font-size: 14px; margin-top: 6px; line-
 .lowconf { margin-top: 6px; color: var(--warn-fg); font-size: 12px; }
 .pending { margin-top: 8px; font-size: 13px; color: var(--muted); }
 .failed { margin-top: 8px; font-size: 13px; color: var(--error-fg); }
-.review { margin-top: 6px; font-size: 12px; color: var(--warn-fg); }
+.review { font-size: 12px; color: var(--warn-fg); flex: 0 0 auto; }
 .authored { margin-top: 8px; font-size: 13px; color: var(--authored-fg); background: var(--authored-bg); border: 1px solid var(--authored-border); border-radius: 6px; padding: 8px 10px; }
-.notmatch { margin-top: 8px; font-size: 13px; color: var(--notmatch-fg); }
+.notmatch { font-size: 12px; color: var(--notmatch-fg); flex: 0 0 auto; }
 form.reject { margin-top: 8px; }
 form.reject button { padding: 6px 14px; font-size: 13px; border: 1px solid var(--error-fg); border-radius: 6px; background: var(--card); color: var(--error-fg); cursor: pointer; }
 form.describe { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; }
