@@ -60,6 +60,22 @@ body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: var(
 
 /* ---- shared page furniture ---- */
 .banner { background: var(--error-bg); color: var(--error-fg); padding: 10px 24px; font-size: 14px; }
+/* Success toast (saved confirmations): green, auto-dismisses after 4s. */
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 200;
+  background: var(--authored-bg);
+  color: var(--authored-fg);
+  border: 1px solid var(--authored-border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  animation: toast-out 0.4s ease 4s forwards;
+}
+@keyframes toast-out { to { opacity: 0; visibility: hidden; } }
 .meta { padding: 12px 24px 0; color: var(--muted); font-size: 14px; }
 .meta .toggles { margin-top: 4px; }
 .meta .toggles a { color: var(--accent); text-decoration: none; }

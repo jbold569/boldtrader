@@ -204,6 +204,7 @@ def render_chat_page(
     draft: dict | None = None,
     search: dict | None = None,
     banner: str = "",
+    banner_cls: str = "banner",
 ) -> str:
     """Render the authoring/refinement chat page.
 
@@ -268,7 +269,7 @@ def render_chat_page(
     heading = f"Refine: {search['summary']}" if search else "New bargain search"
     return _chat_template.substitute(
         heading=html.escape(heading),
-        banner=f'<div class="banner">{html.escape(banner)}</div>' if banner else "",
+        banner=f'<div class="{banner_cls}">{html.escape(banner)}</div>' if banner else "",
         transcript="\n".join(msgs)
         if msgs
         else '<p class="empty">Tell me what you want to buy.</p>',
@@ -472,6 +473,7 @@ class Handler(BaseHTTPRequestHandler):
                 saved_transcript,
                 search=search,
                 banner=f"Bargain Search #{new_id} saved (v{search['version']}).",
+                banner_cls="toast",
             ),
         )
         threading.Thread(
