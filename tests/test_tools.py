@@ -1,7 +1,8 @@
-"""Tests for the Listing Store search tool (ticket #3).
+"""Tests for the chat tools: Listing Store search (ticket #3) and web search (ticket #4).
 
 Pure-function tests against a temporary SQLite database created with the
 repo's real schema init, selected via the BOLDTRADER_DB env override.
+web_search tests stub the DDGS backend; the network is never touched.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import json
 import pytest
 
 from src.db import init_db
-from src.tools import search_listings
+from src.tools import search_listings, web_search
 
 
 def seed_listing(conn, lid, title, price=100.0, condition="good", snippet=""):
@@ -120,3 +121,40 @@ def test_blank_keyword_gets_own_message(db):
     out = search_listings("   ")
     assert "Keyword required" in out
     assert "office chair" not in out
+
+
+class FakeDDGS:
+    def __init__(self, results=None, error=None):
+        self._results = results if results is not None else []
+        self._error = error
+
+    def text(self, query, **kwargs):
+        if self._error:
+            raise self._error
+        return self._results
+
+
+def test_web_search_exception_degrades(monkeypatch):
+    monkeypatch.setattr("src.tools.DDGS", lambda *a, **k: FakeDDGS(error=RuntimeError("boom")))
+    assert web_search("anything") == "web search unavailable"
+
+
+def test_web_search_zero_results(monkeypatch):
+    monkeypatch.setattr("src.tools.DDGS", lambda *a, **k: FakeDDGS(results=[]))
+    assert web_search("rare thing") == 'No results for "rare thing".'
+
+
+def test_web_search_formats_three_results(monkeypatch):
+    results = [
+        {"title": f"Title {i}", "href": f"https://ex.com/{i}", "body": f"Snippet {i}"}
+        for i in range(1, 4)
+    ]
+    monkeypatch.setattr("src.tools.DDGS", lambda *a, **k: FakeDDGS(results=results))
+    out = web_search("hp z440 price")
+    assert "1. Title 1\nURL: https://ex.com/1\nSnippet: Snippet 1" in out
+    assert "3. Title 3" in out
+    assert "4." not in out
+
+
+def test_web_search_blank_query():
+    assert web_search("   ") == "Query required."

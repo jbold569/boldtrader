@@ -1,0 +1,7 @@
+# Runtime third-party dependencies (verified against actual imports in src/).
+# requests: scrapers, router client. beautifulsoup4: HTML parsing.
+# playwright: Facebook scraper + liveness checks. ddgs: web search tool (ticket #4).
+ddgs
+requests
+beautifulsoup4
+playwright

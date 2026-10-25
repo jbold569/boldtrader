@@ -1,8 +1,9 @@
-"""Chat tools: Listing Store keyword search (ticket #3); web search arrives in ticket #6.
+"""Chat tools: Listing Store keyword search (ticket #3) and web search (ticket #4).
 
 search_listings queries what we already observed (the Listing Store), never a
-live Marketplace. Output is compact plain text for the LLM context window:
-one block per hit, raw fields plus an explicit enrichment status per hit.
+live Marketplace. web_search queries live DuckDuckGo (organic results only,
+per ADR 0007). Output is compact plain text for the LLM context window:
+one block per hit.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from src.db import get_connection
+from ddgs import DDGS
 
 # shortcut: revisit FTS5 past ~50k listings or when keyword search shows in a profile
 # (LIKE over 608 rows scans in 0.2 ms; FTS5's default tokenizer mangles hyphenated
@@ -58,4 +60,30 @@ def search_listings(keyword: str) -> str:
         else:
             status = "not enriched"
         blocks.append(f"Title: {r['title']}\nPrice: {price}\nCondition: {condition}\nEnrichment: {status}")
+    return "\n\n".join(blocks)
+
+
+def web_search(query: str) -> str:
+    """Top-3 organic DuckDuckGo results as compact text (ADR 0007).
+
+    Degrades to a plain string on every failure path: the chat turn must
+    continue without web context rather than crash.
+    """
+    if not query or not query.strip():
+        return "Query required."
+    term = query.strip()
+    try:
+        results = DDGS().text(term, max_results=3, backend="html")
+    except Exception:
+        # ddgs raises a zoo of types (rate limit, timeout, network, parse);
+        # all mean the same thing here: no web context this turn.
+        return "web search unavailable"
+    if not results:
+        return f'No results for "{term}".'
+    blocks = []
+    for i, r in enumerate(results[:3], 1):
+        title = r.get("title") or "?"
+        url = r.get("href") or "?"
+        snippet = r.get("body") or "?"
+        blocks.append(f"{i}. {title}\nURL: {url}\nSnippet: {snippet}")
     return "\n\n".join(blocks)
