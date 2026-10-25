@@ -265,7 +265,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
-        if parsed.path in ("/app.css", "/app.js"):
+        if Path(parsed.path).suffix in STATIC_TYPES:
             self._serve_static(parsed.path)
             return
         if parsed.path == "/chat":
@@ -602,8 +602,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _serve_static(self, path: str) -> None:
-        f = STATIC_DIR / path.lstrip("/")
-        if not f.is_file():
+        f = (STATIC_DIR / path.lstrip("/")).resolve()
+        if not f.is_file() or STATIC_DIR.resolve() not in f.parents:
             self._send(404, "Not found")
             return
         data = f.read_bytes()
