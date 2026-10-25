@@ -2,7 +2,7 @@
 
 Run:  .venv/bin/python -m src.server [--port 10000]   (dev ports live in the 10000 range)
 Search: /?q=dell+desktop&loc=Kenmore&m=all   (m: all|offerup|facebook)
-Bargain Search chat: /chat  (refine an existing search: /chat?id=N)
+Chat: /chat  (no id resumes the latest session; /chat?id=N opens one)
 """
 
 from __future__ import annotations
@@ -202,15 +202,16 @@ def render_page(
 def render_chat_page(
     transcript: list[dict],
     draft: dict | None = None,
-    search: dict | None = None,
+    session: dict | None = None,
     banner: str = "",
     banner_cls: str = "banner",
 ) -> str:
-    """Render the authoring/refinement chat page.
+    """Render the chat page for a Chat Session.
 
-    `transcript` is the in-session message list; it travels through the page
-    in a hidden JSON field so the stateless server can continue the thread.
-    `draft`, when present, renders the confirmation form (contract signing).
+    `transcript` is the session's message list loaded from the DB; it also
+    travels through the page in a hidden JSON field so chat.js can
+    markdown-render assistant replies. `draft`, when present, renders the
+    confirmation form (contract signing).
     """
     msgs = []
     pending_calls: list[dict] = []  # tool calls awaiting their rendered chip
@@ -241,6 +242,7 @@ def render_chat_page(
             f'<div class="msg {cls}"><strong>{who}</strong>'
             f"{html.escape(m['content'])}</div>"
         )
+    session_id = (session or {}).get("id", "")
     if draft is not None:
         tp = draft.get("target_price")
         confirm = (
@@ -259,14 +261,13 @@ def render_chat_page(
             '<label>Location<input type="text" name="location" '
             f'value="{html.escape(draft.get("location") or "Kenmore, WA")}" '
             'placeholder="City, State"></label>'
-            f'<input type="hidden" name="transcript" value="{html.escape(json.dumps(transcript))}">'
-            f'<input type="hidden" name="search_id" value="{(search or {}).get("id", "")}">'
+            f'<input type="hidden" name="session_id" value="{session_id}">'
             "<button type=\"submit\">Confirm Bargain Search</button>"
             "</form>"
         )
     else:
         confirm = ""
-    heading = f"Refine: {search['summary']}" if search else "New bargain search"
+    heading = (session or {}).get("title") or "New chat"
     return _chat_template.substitute(
         heading=html.escape(heading),
         banner=f'<div class="{banner_cls}">{html.escape(banner)}</div>' if banner else "",
@@ -275,7 +276,7 @@ def render_chat_page(
         else '<p class="empty">Tell me what you want to buy.</p>',
         confirm=confirm,
         transcript_json=html.escape(json.dumps(transcript)),
-        search_id=(search or {}).get("id", ""),
+        session_id=session_id,
     )
 
 
@@ -377,52 +378,56 @@ class Handler(BaseHTTPRequestHandler):
         return parse_qs(body)
 
     def _handle_chat_get(self, parsed) -> None:
-        """Open the chat: empty for a new search, DB transcript to refine one."""
-        search_id = (parse_qs(parsed.query).get("id") or [""])[0]
-        if not search_id:
-            self._send(200, render_chat_page([]))
-            return
+        """Open the chat: no id resumes the latest session; ?id=N opens that one."""
+        session_id = (parse_qs(parsed.query).get("id") or [""])[0]
         conn = get_connection()
         try:
-            search = chat_mod.get_search(conn, int(search_id))
-            if search is None:
-                self._send(404, f"No bargain search with id {search_id}")
+            if session_id:
+                session = chat_mod.get_session(conn, int(session_id))
+                if session is None:
+                    self._send(404, f"No chat session with id {session_id}")
+                    return
+            else:
+                session = chat_mod.latest_session(conn)
+            if session is None:
+                self._send(200, render_chat_page([]))
                 return
-            transcript = chat_mod.load_transcript(conn, search["id"])
+            transcript = chat_mod.load_session_transcript(conn, session["id"])
         finally:
             conn.close()
-        self._send(200, render_chat_page(transcript, search=search))
+        self._send(200, render_chat_page(transcript, session=session))
 
     def _handle_chat_post(self) -> None:
-        """One authoring turn: LLM reply, draft if ready; persist when refining."""
+        """One chat turn. No session_id means start a new session."""
         form = self._read_form()
         message = (form.get("message") or [""])[0].strip()
         if not message:
             self._send(200, render_chat_page([], banner="Type a message first."))
             return
-        try:
-            transcript = json.loads((form.get("transcript") or ["[]"])[0])
-        except ValueError:
-            transcript = []
-        search_id = (form.get("search_id") or [""])[0]
-        search = None
+        session_id = (form.get("session_id") or [""])[0]
         conn = get_connection()
         try:
-            if search_id:
-                search = chat_mod.get_search(conn, int(search_id))
+            if session_id:
+                session = chat_mod.get_session(conn, int(session_id))
+                if session is None:
+                    self._send(404, f"No chat session with id {session_id}")
+                    return
+            else:
+                sid = chat_mod.create_session(conn, chat_mod.generate_title(message))
+                session = chat_mod.get_session(conn, sid)
+            transcript = chat_mod.load_session_transcript(conn, session["id"])
             try:
                 reply, draft, turn_rows = chat_mod.next_reply(
-                    transcript,
-                    message,
-                    search,
-                    conn=conn if search is not None else None,
+                    transcript, message, conn=conn, session_id=session["id"]
                 )
             except Exception as exc:
+                # next_reply saved the user row before its first model call.
+                rendered = chat_mod.load_session_transcript(conn, session["id"])
                 self._send(
                     200,
                     render_chat_page(
-                        transcript,
-                        search=search,
+                        rendered,
+                        session=session,
                         banner=f"Model call failed ({exc.__class__.__name__}); try again.",
                     ),
                 )
@@ -430,16 +435,11 @@ class Handler(BaseHTTPRequestHandler):
             transcript = transcript + turn_rows
         finally:
             conn.close()
-        self._send(200, render_chat_page(transcript, draft=draft, search=search))
+        self._send(200, render_chat_page(transcript, draft=draft, session=session))
 
     def _handle_confirm_post(self) -> None:
-        """Contract signing: create or refine the Bargain Search from the form."""
+        """Contract signing: create the Bargain Search from the confirmed draft."""
         form = self._read_form()
-        search_id = (form.get("search_id") or [""])[0]
-        try:
-            transcript = json.loads((form.get("transcript") or ["[]"])[0])
-        except ValueError:
-            transcript = []
         try:
             draft = chat_mod.draft_from_form(form)
         except chat_mod.DraftError as exc:
@@ -452,26 +452,28 @@ class Handler(BaseHTTPRequestHandler):
                 "target_price": None,
                 "location": (form.get("location") or [""])[0],
             }
-            self._send(200, render_chat_page(transcript, draft=echoed, banner=str(exc)))
+            self._send(200, render_chat_page([], draft=echoed, banner=str(exc)))
             return
         conn = get_connection()
         try:
-            if search_id:
-                chat_mod.update_search(conn, int(search_id), draft)
-                new_id = int(search_id)
-            else:
-                new_id = chat_mod.create_search(conn, draft)
-                for m in transcript:
-                    chat_mod.append_message(conn, new_id, m["role"], m["content"])
+            new_id = chat_mod.create_search(conn, draft)
             search = chat_mod.get_search(conn, new_id)
-            saved_transcript = chat_mod.load_transcript(conn, new_id)
+            session_id = (form.get("session_id") or [""])[0]
+            session = (
+                chat_mod.get_session(conn, int(session_id)) if session_id else None
+            )
+            transcript = (
+                chat_mod.load_session_transcript(conn, session["id"])
+                if session
+                else []
+            )
         finally:
             conn.close()
         self._send(
             200,
             render_chat_page(
-                saved_transcript,
-                search=search,
+                transcript,
+                session=session,
                 banner=f"Bargain Search #{new_id} saved (v{search['version']}).",
                 banner_cls="toast",
             ),

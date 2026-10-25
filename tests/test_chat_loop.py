@@ -76,13 +76,6 @@ def db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def search(db):
-    from src import chat as chat_mod
-
-    return chat_mod.get_search(db, chat_mod.create_search(db, DRAFT))
-
-
-@pytest.fixture
 def fake_web_ok(monkeypatch):
     class FakeDDGS:
         def __init__(self, *a, **k):
@@ -95,9 +88,16 @@ def fake_web_ok(monkeypatch):
     return WEB_RESULTS
 
 
+@pytest.fixture
+def session(db):
+    from src import chat as chat_mod
+
+    return chat_mod.get_session(db, chat_mod.create_session(db, "test session"))
+
+
 def stored_rows(conn, sid):
     rows = conn.execute(
-        "SELECT role, content FROM conversations WHERE bargain_search_id=? ORDER BY rowid",
+        "SELECT role, content FROM session_messages WHERE chat_session_id=? ORDER BY rowid",
         (sid,),
     ).fetchall()
     return [{"role": r[0], "content": r[1]} for r in rows]
@@ -136,7 +136,7 @@ def test_plain_answer_without_draft_unchanged(monkeypatch):
 
 # --- scenario (b): one tool round, then the answer ---------------------------
 
-def test_one_tool_round_persists_and_answers(db, search, fake_web_ok, monkeypatch):
+def test_one_tool_round_persists_and_answers(db, session, fake_web_ok, monkeypatch):
     fake = FakeLLM(
         tool_msg(tc("c1", "web_search", {"query": "used HP Z440 price"})),
         text_msg("They run about $150-250.\n\n```json\n" + json.dumps(DRAFT) + "\n```"),
@@ -144,9 +144,8 @@ def test_one_tool_round_persists_and_answers(db, search, fake_web_ok, monkeypatc
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    search_row = search
     reply, draft, _rows = chat_mod.next_reply(
-        [], "what should a used HP Z440 go for?", search_row, conn=db
+        [], "what should a used HP Z440 go for?", conn=db, session_id=session["id"]
     )
     assert draft["product_identity"] == "HP Z440 workstation"
     assert reply == "They run about $150-250."
@@ -159,7 +158,7 @@ def test_one_tool_round_persists_and_answers(db, search, fake_web_ok, monkeypatc
     assert follow[-1]["tool_call_id"] == "c1"
     assert "$180" in follow[-1]["content"]
     # persisted: user, assistant-with-tool_calls (JSON), tool result, assistant
-    rows = stored_rows(db, search_row["id"])
+    rows = stored_rows(db, session["id"])
     assert [r["role"] for r in rows] == ["user", "assistant", "tool", "assistant"]
     stored_asst = json.loads(rows[1]["content"])
     assert stored_asst["tool_calls"][0]["function"]["name"] == "web_search"
@@ -188,7 +187,7 @@ def test_tool_round_ignores_content_in_that_round(db, monkeypatch):
 
 # --- scenario (c): 3-round cap, 4th request has no tools --------------------
 
-def test_three_round_cap_forces_answer_without_tools(db, search, fake_web_ok, monkeypatch):
+def test_three_round_cap_forces_answer_without_tools(db, session, fake_web_ok, monkeypatch):
     calls = [
         tool_msg(tc(f"c{i}", "search_listings", {"keyword": "z440"})) for i in range(3)
     ] + [text_msg("Forced final answer.")]
@@ -196,15 +195,16 @@ def test_three_round_cap_forces_answer_without_tools(db, search, fake_web_ok, mo
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    search_row = search
-    reply, draft, _rows = chat_mod.next_reply([], "keep looking", search_row, conn=db)
+    reply, draft, _rows = chat_mod.next_reply(
+        [], "keep looking", conn=db, session_id=session["id"]
+    )
     assert reply == "Forced final answer."
     assert len(fake.calls) == 4
     for i in range(3):
         assert fake.calls[i]["kwargs"]["tools"] == chat_mod.TOOL_SCHEMAS
     assert "tools" not in fake.calls[3]["kwargs"]
     # 3 tool rounds persisted: user + 3×(assistant JSON + tool) + final assistant
-    rows = stored_rows(db, search_row["id"])
+    rows = stored_rows(db, session["id"])
     assert [r["role"] for r in rows] == [
         "user",
         "assistant",
@@ -219,7 +219,7 @@ def test_three_round_cap_forces_answer_without_tools(db, search, fake_web_ok, mo
 
 # --- scenario (d): web_search fails inside the loop --------------------------
 
-def test_tool_failure_flows_back_and_turn_completes(db, search, monkeypatch):
+def test_tool_failure_flows_back_and_turn_completes(db, session, monkeypatch):
     class BoomDDGS:
         def __init__(self, *a, **k):
             pass
@@ -235,10 +235,11 @@ def test_tool_failure_flows_back_and_turn_completes(db, search, monkeypatch):
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    search_row = search
-    reply, draft, _rows = chat_mod.next_reply([], "what do Z440s cost?", search_row, conn=db)
+    reply, draft, _rows = chat_mod.next_reply(
+        [], "what do Z440s cost?", conn=db, session_id=session["id"]
+    )
     assert reply == "Web is down; asking instead."
-    rows = stored_rows(db, search_row["id"])
+    rows = stored_rows(db, session["id"])
     tool_row = rows[2]
     assert tool_row["role"] == "tool"
     assert tool_row["content"] == "web search unavailable"
@@ -286,7 +287,7 @@ def test_reconstruct_maps_tool_rows_to_tool_messages():
 
 # --- replaying persisted rows continues the conversation --------------------
 
-def test_reloaded_transcript_carries_tool_context(db, search, fake_web_ok, monkeypatch):
+def test_reloaded_transcript_carries_tool_context(db, session, fake_web_ok, monkeypatch):
     fake = FakeLLM(
         tool_msg(tc("c1", "web_search", {"query": "z440 price"})),
         text_msg("About $200."),
@@ -294,13 +295,12 @@ def test_reloaded_transcript_carries_tool_context(db, search, fake_web_ok, monke
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    search_row = search
-    chat_mod.next_reply([], "what should a used HP Z440 go for?", search_row, conn=db)
+    chat_mod.next_reply([], "what should a used HP Z440 go for?", conn=db, session_id=session["id"])
     # reload the saved transcript the way a re-opened page would
-    saved = chat_mod.load_transcript(db, search_row["id"])
+    saved = chat_mod.load_session_transcript(db, session["id"])
     fake2 = FakeLLM(text_msg("I already looked that up: $200."))
     monkeypatch.setattr("src.router.chat_with_tools", fake2)
-    chat_mod.next_reply(saved, "and the warranty?", search_row, conn=db)
+    chat_mod.next_reply(saved, "and the warranty?", conn=db, session_id=session["id"])
     sent = fake2.calls[0]["messages"]
     # system + (user, asst-tools, tool-result, assistant) from the saved
     # transcript + the new user message

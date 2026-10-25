@@ -14,7 +14,7 @@ python -m venv .venv
 ```
 
 - Search UI: `http://localhost:8000/?q=dell+desktop&loc=Kenmore&m=all` (`m`: `all|offerup|facebook`)
-- Bargain Search chat: `http://localhost:8000/chat` (refine an existing search: `/chat?id=N`)
+- Chat: `http://localhost:8000/chat` (resumes the latest session; `/chat?id=N` opens a specific one)
 
 State lives in `boldtrader.db` (SQLite, git-ignored). Local-only model inference; see `docs/adr/0006`.
 

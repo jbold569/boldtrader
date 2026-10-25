@@ -1,10 +1,12 @@
-"""Bargain Search chat authoring: LLM conversation, draft contract, persistence.
+"""Chat Session core: LLM conversation, draft contract, persistence.
 
-The LLM clarifies the user's buying needs until it can state a product
-identity, then proposes a draft Bargain Search as a fenced JSON block. The
-user confirms or edits the draft on the confirmation screen; that creates
-the `bargain_searches` row (or, on refinement, replaces the fields with a
-version bump). The full transcript is persisted in `conversations`.
+A Chat Session is a general-purpose conversation (research, analysis,
+buying help). When a Bargain Search draft is ready, the LLM proposes it
+as a fenced JSON block; the user confirms or edits it on the
+confirmation screen, which creates the `bargain_searches` row. The full
+transcript is persisted on the session (`chat_sessions` +
+`session_messages`), never copied into the per-search `conversations`
+table.
 """
 
 from __future__ import annotations
@@ -72,29 +74,37 @@ MAX_TOOL_ROUNDS = 3
 # with the tool's own marker: "1. " (web) / "Title: " (store).
 _RESULT_BLOCK_RE = re.compile(r"^(?:\d+\. |Title: )")
 
-SYSTEM_PROMPT = """You author BoldTrader Bargain Searches: durable buying intents \
-for used computer hardware, fanned out as keyword searches across marketplaces.
-Your job is translating the user's buying needs into keyword queries and filters.
-You are a search translator, not a purchase advisor.
+SYSTEM_PROMPT = """You are the BoldTrader research and buying assistant: a \
+general-purpose agent for used computer hardware. You help the user research \
+products, analyze listings, and manage Bargain Searches.
 
-Conversation rules:
-- Ask clarifying questions until you can state the product identity back to the
-  user as one unambiguous phrase (e.g. "Dell OptiPlex micro PC, Core i5 8th
-  gen"). Never present a draft before the product identity is settled.
-- Once it is settled, present a draft: a one-line human-readable summary
-  ("Core i5-8400 mini PCs, complete, <= $150"), the curated keyword queries,
-  any exclusions, an optional target price, and the search location (city, state
-  — ask the user where they want to search if they haven't said).
-- Curate queries the way a human buyer searches: plain layperson terms plus
+Analysis rules:
+- You may analyze deals and give your opinion: state the math out loud (asking \
+price, shipping, flip value of unwanted extras, effective price) and state \
+your fair-price confidence (high/medium/low) for any number you give.
+- Never invent facts beyond what your tools return. If a lookup did not answer \
+the question, say so plainly instead of guessing.
+- Never urge the user to buy. Present the analysis; the decision is always \
+the user's. Do not manufacture urgency, scarcity, or pressure.
+
+Bargain Search drafts:
+- When the user wants a new Bargain Search, ask clarifying questions until \
+you can state the product identity back to them as one unambiguous phrase \
+(e.g. "Dell OptiPlex micro PC, Core i5 8th gen"). Never present a draft \
+before the product identity is settled.
+- Once it is settled, present a draft: a one-line human-readable summary \
+("Core i5-8400 mini PCs, complete, <= $150"), the curated keyword queries, \
+any exclusions, an optional target price, and the search location (city, \
+state — ask the user where they want to search if they haven't said).
+- Curate queries the way a human buyer searches: plain layperson terms plus \
   model numbers, 3 to 8 queries, each a phrase a seller might have typed.
 - Keep your visible reply short: at most a few sentences. Do NOT enumerate
   queries or exclusions as prose lists — the JSON block carries them.
 
 - You have two tools: search_listings (what BoldTrader has already seen)
-  and web_search (live prices and product info). Use them to clarify what
-  product the user wants: look up typical prices, check whether we have
-  already seen an item. They exist for product identification only — do
-  not browse endlessly; one or two targeted lookups per question.
+  and web_search (live prices and product info). Use them to ground your
+  answers: look up typical prices, check whether we have already seen an
+  item. One or two targeted lookups per question; never browse endlessly.
 
 When your reply contains a draft, end the reply with a fenced JSON block and no
 prose after it, exactly this shape:
@@ -202,25 +212,6 @@ def draft_from_form(form: dict) -> dict:
     )
 
 
-def _system_for(search: dict | None) -> str:
-    """System prompt; refinement turns get the current search state appended."""
-    if search is None:
-        return SYSTEM_PROMPT
-    tp = search["target_price"]
-    return (
-        SYSTEM_PROMPT
-        + "\nCurrent Bargain Search being refined: "
-        f"summary={search['summary']!r}; "
-        f"product_identity={search['product_identity']!r}; "
-        f"queries={search['queries']!r}; "
-        f"exclusions={search['exclusions']!r}; "
-        f"target_price={tp if tp is not None else 'none'}; "
-        f"location={search['location']!r}. "
-        "The user is refining this search. When their new needs are clear, "
-        "present a fresh full draft; confirming it replaces the search above."
-    )
-
-
 def chip_text(tool_name: str, query: str, output: str) -> str:
     """One-line chip label for a stored tool result.
 
@@ -299,24 +290,34 @@ def _run_tool(call: dict) -> tuple[str, str, str]:
 def next_reply(
     transcript: list[dict],
     user_message: str,
-    search: dict | None = None,
     conn: sqlite3.Connection | None = None,
+    session_id: int | None = None,
 ) -> tuple[str, dict | None, list[dict]]:
-    """One authoring turn with tool use (ticket #6, ADR 0007).
+    """One chat turn with tool use (ticket #8, ADR 0008).
 
     Returns ``(reply, draft, turn_rows)`` where turn_rows are this turn's
     transcript rows in order: the user message, then per tool round the
     assistant message (stored as JSON so tool_calls survive) plus one
-    role="tool" row per call, then the final assistant row. Pass conn to
-    persist the turn; omit it for a dry run.
+    role="tool" row per call, then the final assistant row. Pass conn and
+    session_id to persist each row on the Chat Session as it is produced;
+    the user message is saved before the first model call, so it survives
+    even if that call fails. Omit conn/session_id for a dry run.
 
     At most MAX_TOOL_ROUNDS tool rounds; the call after that is made
     without tools so the model must answer.
     """
-    messages = [{"role": "system", "content": _system_for(search)}]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += reconstruct_messages(transcript)
     messages.append({"role": "user", "content": user_message})
-    turn_rows = [{"role": "user", "content": user_message}]
+    turn_rows: list[dict] = []
+
+    def emit(row: dict) -> None:
+        turn_rows.append(row)
+        if conn is not None and session_id is not None:
+            append_session_message(conn, session_id, row["role"], row["content"])
+            _touch(conn, session_id)
+
+    emit({"role": "user", "content": user_message})
 
     for _ in range(MAX_TOOL_ROUNDS):
         msg = router.chat_with_tools(messages, tools=TOOL_SCHEMAS)
@@ -324,11 +325,9 @@ def next_reply(
         text = msg.get("content") or ""
         if not tool_calls:
             reply, draft = parse_reply(text)
-            turn_rows.append({"role": "assistant", "content": reply})
-            if conn is not None:
-                for row in turn_rows:
-                    append_message(conn, search["id"], row["role"], row["content"])
+            emit({"role": "assistant", "content": reply})
             return reply, draft, turn_rows
+        blob = json.dumps({"content": text, "tool_calls": tool_calls})
         messages.append(
             {
                 "role": "assistant",
@@ -336,25 +335,27 @@ def next_reply(
                 "tool_calls": tool_calls,
             }
         )
-        turn_rows.append(
-            {"role": "assistant", "content": json.dumps({"content": text, "tool_calls": tool_calls})}
-        )
+        emit({"role": "assistant", "content": blob})
         for call in tool_calls:
             name, query, output = _run_tool(call)
             messages.append(
                 {"role": "tool", "tool_call_id": call.get("id", ""), "content": output}
             )
-            turn_rows.append({"role": "tool", "content": output})
+            emit({"role": "tool", "content": output})
 
     # Round cap reached: ask once more without tools — the model must answer.
     msg = router.chat_with_tools(messages)
     text = msg.get("content") or ""
     reply, draft = parse_reply(text)
-    turn_rows.append({"role": "assistant", "content": reply})
-    if conn is not None:
-        for row in turn_rows:
-            append_message(conn, search["id"], row["role"], row["content"])
+    emit({"role": "assistant", "content": reply})
     return reply, draft, turn_rows
+
+
+def _touch(conn: sqlite3.Connection, session_id: int) -> None:
+    conn.execute(
+        "UPDATE chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (session_id,)
+    )
+    conn.commit()
 
 
 def create_search(conn: sqlite3.Connection, draft: dict) -> int:
@@ -373,24 +374,6 @@ def create_search(conn: sqlite3.Connection, draft: dict) -> int:
     )
     conn.commit()
     return cur.lastrowid
-
-
-def update_search(conn: sqlite3.Connection, search_id: int, draft: dict) -> None:
-    """Refinement: replace the search fields and bump its version."""
-    conn.execute(
-        "UPDATE bargain_searches SET summary=?, product_identity=?, location=?, target_price=?, "
-        "queries=?, exclusions=?, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        (
-            draft["summary"],
-            draft["product_identity"],
-            draft["location"],
-            draft["target_price"],
-            json.dumps(draft["queries"]),
-            json.dumps(draft["exclusions"]),
-            search_id,
-        ),
-    )
-    conn.commit()
 
 
 def get_search(conn: sqlite3.Connection, search_id: int) -> dict | None:
@@ -440,3 +423,72 @@ def delete_search(conn: sqlite3.Connection, search_id: int) -> None:
     conn.execute("DELETE FROM conversations WHERE bargain_search_id=?", (search_id,))
     conn.execute("DELETE FROM bargain_searches WHERE id=?", (search_id,))
     conn.commit()
+
+
+# --- Chat Sessions (ticket #8, ADR 0008) -------------------------------------
+
+def create_session(conn: sqlite3.Connection, title: str) -> int:
+    cur = conn.execute("INSERT INTO chat_sessions (title) VALUES (?)", (title,))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_session(conn: sqlite3.Connection, session_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT id, title FROM chat_sessions WHERE id=?", (session_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "title": row[1]}
+
+
+def latest_session(conn: sqlite3.Connection) -> dict | None:
+    """The most recently created session, or None if there are none."""
+    row = conn.execute(
+        "SELECT id, title FROM chat_sessions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "title": row[1]}
+
+
+def append_session_message(
+    conn: sqlite3.Connection, session_id: int, role: str, content: str
+) -> None:
+    conn.execute(
+        "INSERT INTO session_messages (chat_session_id, role, content) VALUES (?, ?, ?)",
+        (session_id, role, content),
+    )
+    conn.commit()
+
+
+def load_session_transcript(conn: sqlite3.Connection, session_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT role, content FROM session_messages WHERE chat_session_id=? ORDER BY rowid",
+        (session_id,),
+    ).fetchall()
+    return [{"role": r[0], "content": r[1]} for r in rows]
+
+
+_TITLE_PROMPT = (
+    "Write a short title (3 to 6 words) that names what this message is "
+    "about. Reply with the title only — no quotes, no punctuation at the end.\n\n"
+)
+
+
+def generate_title(message: str) -> str:
+    """Short session title from the first user message; 40-char fallback.
+
+    One small LLM call. Any failure (router error, empty/whitespace reply)
+    falls back to the first 40 characters of the message itself.
+    """
+    try:
+        raw = router.chat(
+            [{"role": "user", "content": _TITLE_PROMPT + message}], max_tokens=40
+        )
+    except Exception:
+        raw = ""
+    title = (raw or "").strip().strip('"').strip("'").strip()
+    if not title:
+        return message[:40]
+    return title

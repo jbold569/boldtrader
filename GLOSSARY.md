@@ -69,15 +69,16 @@ _Avoid_: item, offer, posting
 The locally persisted record of every Listing BoldTrader has observed, together with whatever Enrichment has been recorded for it. Independent of any live Marketplace query: the Marketplace is where new supply arrives; the Listing Store is what we already know. Searched by keyword to recall previously seen listings.
 _Avoid_: database, cache, index, inventory
 **Search**:
-A keyword query submitted to a marketplace, returning a paginated set of Listings. Ephemeral by default — a Search becomes durable only when saved as a Watch.
+A keyword query submitted to a marketplace, returning a paginated set of Listings. Ephemeral by default — a Search becomes durable only when saved as a Bargain Search.
 _Avoid_: query, filter
 
 **Watch**:
-A saved search the user tracks. The app surfaces new listings matching a watch.
-_Avoid_: alert, saved search, tracker
+A specific Listing the user has saved for later, tracked over time: its price movements and whether it is still available. Not a saved query — a Watch is about one thing, not a class of things.
+The app alerts the user when a watched Listing's price drops or it disappears.
+_Avoid_: saved search, saved listing
 
 **Locality**:
-The geographic scope of a watch: a center point and a radius. Local marketplaces are metro-scoped — a watch without a locality on a local marketplace sees nothing useful.
+The geographic scope of a Bargain Search: a center point and a radius. Local marketplaces are metro-scoped — a Bargain Search without a locality on a local marketplace sees nothing useful.
 _Avoid_: area, region, location
 
 **Deal threshold**:
@@ -113,5 +114,9 @@ The first-pass judgment of whether a listing is the product a Bargain Search wan
 _Avoid_: triage, filtering, screening
 
 **Bargain Search**:
-A durable buying intent authored through a chat conversation with an LLM: the product(s) the user wants, plus a set of keyword queries the LLM curates and fans out across marketplaces. The broad net that feeds Enrichment; precise filtering happens after enrichment, not before.
+A durable buying intent authored through a chat conversation with the agent or directly via the advanced search form: the product(s) the user wants, plus a set of keyword queries the LLM curates and fans out across marketplaces. The broad net that feeds Enrichment; precise filtering happens after enrichment, not before.
 _Avoid_: deal search, advanced search, broadcast
+
+**Chat Session**:
+A conversation between the user and the agent, independent of any Bargain Search. Where the user searches listings, does research, and asks the agent to create, modify, or delete Bargain Searches. A search is no longer the unit of conversation; the session is.
+_Avoid_: thread, dialogue, bot
