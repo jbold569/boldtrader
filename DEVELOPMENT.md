@@ -28,7 +28,9 @@ automatically when `/search?id=N` is opened and runs in a background thread.
 
 ## Model router
 
-The webapp requests `qwen3.8-flash-next-w4b-q8-halogen` (plain id, see
-`src/router.py`). NEVER use the `-pair` variant for the webapp: it pins a
-fixed container, never triggers a profile change on the router, and deadlocks
-container swaps while testing.
+The webapp pins `qwen3.8-flash-next-w4b-q8-halogen-pair` for chat and
+Enrichment (see `src/router.py`). The `-pair` profile is the BoldTrader-
+specific container the router keeps loaded, serving both models from one
+container. The old plain id (the `...-halogen` id without `-pair`) causes
+a container swap mid-turn and stalls requests (ADR 0007; supersedes
+ADR 0006 §2) — never name it in current code or config.

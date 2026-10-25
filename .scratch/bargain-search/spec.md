@@ -37,7 +37,7 @@ Enrichment is keyed by listing, not by Bargain Search: intrinsic facts about a l
 ## Model contract (boldhalo router)
 
 - OpenAI-compatible `/v1/chat/completions`, model name passed per call. boldtrader does not care which model answers; boldhalo owns routing.
-- **Chat + enrichment**: `qwen3.8-flash-next-w4b-q8-halogen` (user's loaded model, liked).
+- **Chat + enrichment**: `qwen3.8-flash-next-w4b-q8-halogen-pair` (BoldTrader's pinned container, ADR 0007).
 - **Triage**: `decider-0.8b` on the XDNA 2 NPU via halogen's `/classify` endpoint (zero GPU memory). Fallback if NPU path unavailable: CPU-only Qwen3-4B-class Q4_K_M.
 - Enrichment output contract: fixed schema, short field values, explicit `unknown` per field. The schema is boldtrader's; the model fills slots and never shapes the record. A bad field degrades to "?" instead of breaking the parse.
 - Full stack rationale, hardware facts, and verify-first list: `docs/research/local-models-ms-s1-max.md`. Port the requirements into boldhalo from there.

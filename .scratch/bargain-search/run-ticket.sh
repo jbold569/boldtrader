@@ -28,7 +28,7 @@ EOF
 
 echo "=== $(date '+%H:%M:%S') starting $TICKET ==="
 omp -p --mode json --yolo --no-title \
-    --model qwen3.8-flash-next-w4b-q8-halogen \
+    --model qwen3.8-flash-next-w4b-q8-halogen-pair \
     --max-time 3600 \
     <<<"$PROMPT" > "logs/$(basename "$TICKET" .md).jsonl" 2>"logs/$(basename "$TICKET" .md).err"
 rc=$?

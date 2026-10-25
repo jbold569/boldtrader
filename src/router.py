@@ -15,11 +15,11 @@ ROUTER = "http://model.boldhalo.home"
 CHAT_URL = ROUTER + "/v1/chat/completions"
 SIFT_URL = ROUTER + "/v1/systemone"
 
-# The webapp requests the plain halogen id (NOT the `-pair` variant).
-# `-pair` pins a fixed container that never triggers a profile change on the
-# router, so its in-flight lease blocks container swaps — a deadlock while
-# testing boldtrader against new profiles. The plain id lets swaps proceed.
-ENRICH_MODEL = "qwen3.8-flash-next-w4b-q8-halogen"
+# Both chat and Enrichment pin the `-pair` variant: it is the
+# BoldTrader-specific container the router keeps loaded, serving both models
+# from one container. The old plain id (`...-halogen`) triggers a container
+# swap mid-turn and stalls requests (observed live, 2026-10-25; ADR 0007).
+ENRICH_MODEL = "qwen3.8-flash-next-w4b-q8-halogen-pair"
 SIFT_MODEL = "vllm-sr/d3-lite"
 
 # Chat pins the `-pair` variant: it is the container the router keeps
