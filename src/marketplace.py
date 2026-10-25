@@ -68,7 +68,7 @@ class Marketplace(ABC):
     def fetch_detail(self, listing: Listing) -> ListingDetail:
         """Fetch the full listing record (description, images, shipping/fees).
 
-        Raises on any failure; callers degrade the listing to triage-only
+        Raises on any failure; callers degrade the listing to sift-only
         with "enrichment unavailable". One marketplace never blocks the pipeline.
         """
         raise NotImplementedError(f"{self.name} does not implement fetch_detail")

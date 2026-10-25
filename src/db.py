@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS listings (
     id TEXT PRIMARY KEY,
     raw TEXT NOT NULL,
     authored_description TEXT,
+    availability TEXT NOT NULL DEFAULT 'live',
+    availability_checked_at TEXT,
     first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -90,6 +92,11 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     lcols = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
     if "authored_description" not in lcols:
         conn.execute("ALTER TABLE listings ADD COLUMN authored_description TEXT")
+        conn.commit()
+    # Migrate DBs created before availability tracking existed.
+    if "availability" not in lcols:
+        conn.execute("ALTER TABLE listings ADD COLUMN availability TEXT NOT NULL DEFAULT 'live'")
+        conn.execute("ALTER TABLE listings ADD COLUMN availability_checked_at TEXT")
         conn.commit()
     # Migrate DBs created before location existed.
     if "location" not in cols:

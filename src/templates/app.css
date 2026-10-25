@@ -106,6 +106,7 @@ li.card .btns form.reject button:hover { background: var(--error-bg); }
 .lowconf { margin-top: 6px; color: var(--warn-fg); font-size: 12px; }
 .review { font-size: 12px; color: var(--warn-fg); flex: 0 0 auto; }
 .notmatch { font-size: 12px; color: var(--notmatch-fg); flex: 0 0 auto; }
+.dead { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 8px; border-radius: 10px; background: var(--error-bg); color: var(--error-fg); flex: 0 0 auto; }
 
 /* ---- description dialog ---- */
 #desc-dialog { border: 1px solid var(--border); border-radius: 8px; padding: 18px; max-width: 520px; width: 90%; background: var(--card); color: var(--fg); }

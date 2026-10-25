@@ -5,7 +5,7 @@ annotations (✨ product / condition / bundle / confidence), pending and
 failed markers, a show-all toggle that reveals not-matches as the safety
 net, and an optional target-price filter (off by default). Rejecting a
 card writes a `rejects` row and feeds the Bargain Search's exclusion list
-so the next triage pass respects it. The user's authored description
+so the next sifting pass respects it. The user's authored description
 always overrides AI enrichment.
 """
 
@@ -59,9 +59,11 @@ def view_cards(
         return {"search": search, "cards": []}
     placeholders = ",".join("?" * len(verdicts))
     cards = []
-    for lid, raw, authored, estatus, product, condition, bundle, confidence in conn.execute(
+    for (
+        lid, raw, authored, estatus, product, condition, bundle, confidence, availability
+    ) in conn.execute(
         f"SELECT l.id, l.raw, l.authored_description, e.status, e.product, "
-        f"e.condition, e.bundle, e.confidence "
+        f"e.condition, e.bundle, e.confidence, l.availability "
         f"FROM listings l LEFT JOIN enrichments e ON e.listing_id = l.id "
         f"WHERE l.id IN ({placeholders}) AND l.id NOT IN "
         f"(SELECT listing_id FROM rejects WHERE bargain_search_id=?)",
@@ -87,6 +89,7 @@ def view_cards(
                 "bundle": json.loads(bundle) if bundle else None,
                 "confidence": json.loads(confidence) if confidence else None,
                 "authored": authored,
+                "availability": availability or "live",
             }
         )
     return {"search": search, "cards": cards}
@@ -95,7 +98,7 @@ def view_cards(
 def reject_listing(
     conn: sqlite3.Connection, search_id: int, listing_id: str, reason: str
 ) -> None:
-    """Reject a card: record it and feed the exclusion list for the next triage."""
+    """Reject a card: record it and feed the exclusion list for the next sift."""
     conn.execute(
         "INSERT INTO rejects (bargain_search_id, listing_id, reason) VALUES (?, ?, ?)",
         (search_id, listing_id, reason),
@@ -174,21 +177,28 @@ def _render_enrichment(card: dict) -> str:
 
 
 def _render_card(card: dict, search_id: int) -> str:
+    dead = card.get("availability") == "dead"
     badge = (
         f'<span class="badge badge-{card["marketplace"]}">{card["marketplace"]}</span>'
         if card["marketplace"]
         else ""
     )
+    dead_chip = '<span class="dead">Not available</span>' if dead else ""
     verdict_chip = ""
     if card["verdict"] == "not_match":
         verdict_chip = '<span class="notmatch">not a match</span>'
     elif card["verdict"] == "unsure":
         verdict_chip = '<span class="review">needs review</span>'
-    job = {
-        "pending": '<span class="job job-pending">⏳ pending</span>',
-        "enriched": '<span class="job job-ok">✨ enriched</span>',
-        "failed": '<span class="job job-failed">❌ failed</span>',
-    }.get(card["enrich_status"], "")
+    # A dead listing's enrichment status is noise; the chip says it all.
+    job = (
+        ""
+        if dead
+        else {
+            "pending": '<span class="job job-pending">⏳ pending</span>',
+            "enriched": '<span class="job job-ok">✨ enriched</span>',
+            "failed": '<span class="job job-failed">❌ failed</span>',
+        }.get(card["enrich_status"], "")
+    )
     jobline = (
         f'<div class="jobline">{verdict_chip}{job}</div>'
         if (verdict_chip or job)
@@ -207,7 +217,7 @@ def _render_card(card: dict, search_id: int) -> str:
         '<div class="data">'
         f"{thumb}"
         '<div class="info">'
-        f'<div class="titlerow">{badge}'
+        f'<div class="titlerow">{badge}{dead_chip}'
         f'<a class="title" href="{html.escape(card["url"])}" target="_blank" '
         f'rel="noopener">{html.escape(card["title"])}</a></div>'
         f'<div class="price">{_fmt_price(card["price"])}</div>'
@@ -231,7 +241,7 @@ def _render_card(card: dict, search_id: int) -> str:
         "</form>"
         "</div>"
     )
-    return f'<li class="card">{data}{desc_row}{btns}</li>'
+    return f'<li class="card" data-listing-id="{html.escape(card["id"])}">{data}{desc_row}{btns}</li>'
 
 
 def _view_link(search_id: int, show_all: bool, price_filter: bool) -> str:

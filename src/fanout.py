@@ -1,7 +1,7 @@
 """Fan-out + enrichment worker (ticket 05).
 
 On confirmation, fan every curated query across all marketplaces (paginated,
-tolerant of single-marketplace failure), persist each new listing, and triage it.
+tolerant of single-marketplace failure), persist each new listing, and sift it.
 Listings judged match/unsure enter the enrichment queue. A single background
 worker drains the queue: fetch_detail + enrich, retry once, then mark failed.
 The queue is the database: status columns make it restart-resumable.
@@ -30,7 +30,7 @@ def fan_out(
     search_id: int,
     location: str | None = None,
 ) -> None:
-    """Run every query across every marketplace; persist + triage new listings.
+    """Run every query across every marketplace; persist + sift new listings.
 
     One thread per marketplace (same tolerance pattern as _search_all): a
     single marketplace failing is a note, not an error. Match/unsure listings
@@ -79,7 +79,7 @@ def fan_out(
                         break  # this query/marketplace failed; keep the others
                     with lock:
                         known = set(verdicts)
-                    new_verdicts = _persist_and_triage(
+                        new_verdicts = _persist_and_sift(
                         mconn, result.listings, name, product_identity, exclusions, known
                     )
                     with lock:
@@ -120,7 +120,7 @@ def fan_out(
         conn.close()
 
 
-def _persist_and_triage(
+def _persist_and_sift(
     conn: sqlite3.Connection,
     listings: list[Listing],
     marketplace: str,
@@ -128,17 +128,17 @@ def _persist_and_triage(
     exclusions: list[str],
     known_lids: set[str],
 ) -> dict[str, str]:
-    """Store new listings; queue the ones triage calls match/unsure.
+    """Store new listings; queue the ones the sift calls match/unsure.
 
     Returns {listing_id: verdict} for the new listings in this batch.
     Not-matches stay in the pass-through view but never enter the
     enhanced view.
 
     "Already seen" is per-search (known_lids), not global: a listing
-    persisted by another search still needs triaging for this one. The
+    persisted by another search still needs sifting for this one. The
     listings table is a raw cache, not the dedup key.
 
-    Three short write transactions with the slow triage calls in between:
+    Three short write transactions with the slow sift calls in between:
     holding a SQLite write lock across LLM latency starves every other
     writer (the enrichment worker) and blows the busy timeout.
     """
@@ -152,19 +152,19 @@ def _persist_and_triage(
             (lid, json.dumps(vars(listing))),
         )
         if lid in known_lids:
-            continue  # already triaged for this search
+            continue  # already sifted for this search
         summary = " ".join(x for x in (listing.title, listing.snippet) if x)
         new_listings.append((lid, summary))
     conn.commit()
 
-    # Phase 2: triage outside any transaction (slow, no lock held).
+    # Phase 2: sift outside any transaction (slow, no lock held).
     verdicts: dict[str, str] = {}
     for lid, summary in new_listings:
         try:
-            verdict = router.triage(summary, product_identity, exclusions=exclusions)
+            verdict = router.sift(summary, product_identity, exclusions=exclusions)
         except Exception as exc:
-            log.warning("triage failed for %s: %s (marking unsure)", lid, exc)
-            verdict = "unsure"  # never silently drop on a triage error
+            log.warning("sift failed for %s: %s (marking unsure)", lid, exc)
+            verdict = "unsure"  # never silently drop on a sift error
         verdicts[lid] = verdict
 
     # Phase 3: queue match/unsure for enrichment.

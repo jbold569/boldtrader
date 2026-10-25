@@ -104,6 +104,10 @@ _Avoid_: recycler, liquidator
 The AI-extracted facts added to a Listing beyond what the marketplace exposes: resolved product identity, normalized condition, and the bundle's contents as a list of additional products. Enrichment is a first draft — the user's authored description always overrides it.
 _Avoid_: AI analysis, scoring, enhancement
 
+**Sifting**:
+The first-pass judgment of whether a listing is the product a Bargain Search wants, made against the search's product identity and exclusion list. Produces a verdict of match, not_match, or unsure; unsure listings are surfaced for the human's eye rather than dropped. Sifting happens before Enrichment and is cheap per listing; a low-confidence verdict is treated as unsure.
+_Avoid_: triage, filtering, screening
+
 **Bargain Search**:
 A durable buying intent authored through a chat conversation with an LLM: the product(s) the user wants, plus a set of keyword queries the LLM curates and fans out across marketplaces. The broad net that feeds Enrichment; precise filtering happens after enrichment, not before.
 _Avoid_: deal search, advanced search, broadcast

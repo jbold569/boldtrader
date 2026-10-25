@@ -1,6 +1,6 @@
 """BoldTrader: marketplace search + Bargain Search chat authoring.
 
-Run:  .venv/bin/python -m src.server [--port 8000]
+Run:  .venv/bin/python -m src.server [--port 10000]   (dev ports live in the 10000 range)
 Search: /?q=dell+desktop&loc=Kenmore&m=all   (m: all|offerup|facebook)
 Bargain Search chat: /chat  (refine an existing search: /chat?id=N)
 """
@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from . import chat as chat_mod
 from . import enhanced
+from . import liveness
 from .db import get_connection, init_db
 from .ebay_scraper import EbayScraper
 from .facebook_scraper import FacebookScraper
@@ -273,6 +274,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/search":
             self._handle_enhanced_get(parsed)
             return
+        if parsed.path == "/liveness":
+            self._handle_liveness_get(parsed)
+            return
         if parsed.path in ("/", "/index.html", "/searches"):
             self._handle_searches_get()
             return
@@ -457,7 +461,12 @@ class Handler(BaseHTTPRequestHandler):
         ).start()
 
     def _handle_enhanced_get(self, parsed) -> None:
-        """Enhanced view: match-filtered cards with enrichment annotations."""
+        """Enhanced view: match-filtered cards with enrichment annotations.
+
+        Kicking the liveness sweep only after the response is sent keeps the
+        page instant; the page polls /liveness to update "no longer
+        available" labels as the sweep progresses.
+        """
         qs = parse_qs(parsed.query)
         sid = (qs.get("id") or [""])[0]
         if not sid:
@@ -473,7 +482,24 @@ class Handler(BaseHTTPRequestHandler):
         if state is None:
             self._send(404, f"No bargain search with id {sid}")
             return
-        self._send(200, enhanced.render_enhanced_page(state, show_all=show_all, price_filter=price_filter))
+        banner = liveness.status(int(sid)).get("banner", "")
+        self._send(
+            200,
+            enhanced.render_enhanced_page(
+                state, show_all=show_all, price_filter=price_filter, banner=banner
+            ),
+        )
+        liveness.start(int(sid))
+
+    def _handle_liveness_get(self, parsed) -> None:
+        """JSON poll target for the enhanced view's liveness sweep."""
+        qs = parse_qs(parsed.query)
+        sid = (qs.get("id") or [""])[0]
+        if not sid:
+            self._send(400, "Missing search id")
+            return
+        self._send(200, json.dumps(liveness.status(int(sid))),
+                  content_type="application/json")
 
     def _handle_searches_get(self) -> None:
         """Bargain Search list page."""
@@ -566,10 +592,10 @@ class Handler(BaseHTTPRequestHandler):
             enhanced.render_searches_page(searches, banner=f"Deleted bargain search #{sid}."),
         )
 
-    def _send(self, status: int, body: str) -> None:
+    def _send(self, status: int, body: str, content_type: str = "text/html") -> None:
         data = body.encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()

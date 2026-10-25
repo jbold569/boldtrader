@@ -1,9 +1,8 @@
-"""boldhalo router client: OpenAI-compatible chat completions for Enrichment and triage.
+"""boldhalo router client: chat completions for Enrichment, d3 decision lane for Sifting.
 
 The router (http://model.boldhalo.home) owns model routing; this client passes
 the model name per call and never cares which weights answer. Errors are loud:
-one retry, then raise. `/classify` (NPU triage) is not live on the router yet
-(404, verified 2026-10-24), so triage runs through chat completions for now.
+one retry, then raise.
 """
 
 from __future__ import annotations
@@ -12,17 +11,27 @@ import json
 
 import requests
 
-BASE_URL = "http://model.boldhalo.home/v1/chat/completions"
+ROUTER = "http://model.boldhalo.home"
+CHAT_URL = ROUTER + "/v1/chat/completions"
+SIFT_URL = ROUTER + "/v1/systemone"
 
+# The webapp requests the plain halogen id (NOT the `-pair` variant).
+# `-pair` pins a fixed container that never triggers a profile change on the
+# router, so its in-flight lease blocks container swaps — a deadlock while
+# testing boldtrader against new profiles. The plain id lets swaps proceed.
 ENRICH_MODEL = "qwen3.8-flash-next-w4b-q8-halogen"
-# decider-0.8b is not on the router yet (404, verified 2026-10-24); interim
-# triage runs the small-model prompt on the loaded chat model.
-TRIAGE_MODEL = ENRICH_MODEL
+SIFT_MODEL = "vllm-sr/d3-lite"
 
 # Chat authoring uses the same loaded model as enrichment (spec: chat + enrichment).
 CHAT_MODEL = ENRICH_MODEL
 
 TIMEOUT = 120  # seconds; enrichment reads 1-3k tokens per call
+SIFT_TIMEOUT = 300  # seconds; covers a cold decision-lane load
+
+# Gate on d3's confidence, not the headline number: a live test showed a
+# confident-looking 0.93 score whose per-level distribution was uniform and
+# whose confidence was 0.008. Tune from observed data.
+SIFT_CONFIDENCE_FLOOR = 0.5
 
 # Canonical condition set (GLOSSARY.md).
 CONDITIONS = ("complete", "cosmetic damage", "missing parts", "for parts", "refurbished")
@@ -47,7 +56,7 @@ def _chat(messages: list[dict], model: str, max_tokens: int) -> str:
     last: Exception | None = None
     for _ in range(2):  # initial attempt + one retry
         try:
-            resp = requests.post(BASE_URL, json=payload, timeout=TIMEOUT)
+            resp = requests.post(CHAT_URL, json=payload, timeout=TIMEOUT)
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
             if not content or not content.strip():
@@ -150,38 +159,50 @@ def enrich(listing_text: str, authored: str = "", model: str = ENRICH_MODEL) -> 
     return _validate_enrichment(_extract_json(content))
 
 
-def triage(
+def sift(
     listing_summary: str,
     product_identity: str,
-    model: str = TRIAGE_MODEL,
+    model: str = SIFT_MODEL,
     exclusions: list[str] | None = None,
 ) -> str:
     """Judge one listing against a Bargain Search's product identity.
 
-    Returns "match", "not_match", or "unsure". Interim implementation: chat
-    completions with a small-model prompt. Swap the body when halogen's
-    /classify endpoint goes live; keep this signature.
+    Returns "match", "not_match", or "unsure". A low-confidence answer is
+    demoted to "unsure" so a noisy decision never silently drops a listing.
     """
-    system = (
-        "You decide whether a marketplace listing is the product the buyer wants. "
-        "Reply with exactly one word: match, not_match, or unsure. "
-        "If the listing could be the product but the text is too vague to tell, say unsure."
-    )
+    state = f"Wanted product: {product_identity}"
     if exclusions:
-        system += " Never match these: " + "; ".join(exclusions) + "."
-    user = f"Wanted product: {product_identity}\nListing: {listing_summary}"
-    content = _chat(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        model=model,
-        max_tokens=8,
-    )
-    label = content.strip().lower().replace("-", "_").replace(" ", "_")
-    if label not in _LABELS:
-        raise RouterError(f"triage returned {content!r}, not a valid label")
-    return label
+        state += " Never accept these: " + "; ".join(exclusions) + "."
+    state += f"\nListing: {listing_summary}"
+    payload = {
+        "model": model,
+        "state": state,
+        "questions": {
+            "route": {
+                "type": "choice",
+                "instructions": "Is this listing the product the buyer wants?",
+                "criteria": {
+                    "match": "The listing is the wanted product",
+                    "not_match": "The listing is not the wanted product",
+                },
+            }
+        },
+    }
+    last: Exception | None = None
+    for _ in range(2):  # initial attempt + one retry
+        try:
+            resp = requests.post(SIFT_URL, json=payload, timeout=SIFT_TIMEOUT)
+            resp.raise_for_status()
+            answer = resp.json()["answers"]["route"]
+            if float(answer.get("confidence") or 0.0) < SIFT_CONFIDENCE_FLOOR:
+                return "unsure"
+            choice = answer["choice"]
+            if choice not in _LABELS:
+                raise RouterError(f"sift returned {choice!r}, not a valid label")
+            return choice
+        except (requests.RequestException, ValueError, KeyError, RouterError) as exc:
+            last = exc
+    raise RouterError(f"sift call failed after retry: {last}") from last
 
 
 def chat(messages: list[dict], model: str = CHAT_MODEL, max_tokens: int = 2000) -> str:

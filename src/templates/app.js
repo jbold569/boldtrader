@@ -45,3 +45,25 @@
     });
   });
 })();
+
+// Liveness sweep: on /search, poll /liveness until the background sweep
+// finishes; if it found any "no longer available" listings the freshly
+// rendered page didn't show yet, reload once so the dead chips appear.
+// Converges because after the reload the server-rendered dead count equals
+// the sweep result, so no second reload fires.
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    if (location.pathname !== '/search') return;
+    var rendered = document.querySelectorAll('li.card .dead').length;
+    var timer = setInterval(function () {
+      fetch('/liveness?id=' + encodeURIComponent(new URLSearchParams(location.search).get('id') || ''))
+        .then(function (r) { return r.json(); })
+        .then(function (s) {
+          if (!s.done) return;
+          clearInterval(timer);
+          if ((s.dead || []).length !== rendered) location.reload();
+        })
+        .catch(function () {});
+    }, 4000);
+  });
+})();
