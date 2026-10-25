@@ -210,3 +210,36 @@ def sift(
 def chat(messages: list[dict], model: str = CHAT_MODEL, max_tokens: int = 2000) -> str:
     """Free-form chat completion (Bargain Search authoring)."""
     return _chat(messages, model=model, max_tokens=max_tokens)
+
+
+def chat_with_tools(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    model: str = CHAT_MODEL,
+    max_tokens: int = 2000,
+) -> dict:
+    """Chat completion that returns the full assistant message (content AND
+    tool_calls), for the authoring chat's tool loop (ticket #6, ADR 0007).
+
+    Same pinned model, temperature 0, thinking off as `chat`. Unlike
+    `_chat`, empty content is not an error: a tool-call turn often has no
+    prose.
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    if tools is not None:
+        payload["tools"] = tools
+    last: Exception | None = None
+    for _ in range(2):  # initial attempt + one retry
+        try:
+            resp = requests.post(CHAT_URL, json=payload, timeout=TIMEOUT)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            last = exc
+    raise RouterError(f"router tool call failed after retry: {last}") from last

@@ -12,7 +12,14 @@
     // Assistant messages are a filtered subset of the transcript; index the
     // filtered list so entry i lines up with the i-th .msg.assistant on page.
     var replies = transcript.filter(function (m) {
-      return m && m.role === 'assistant' && typeof m.content === 'string';
+      if (!m || m.role !== 'assistant' || typeof m.content !== 'string') return false;
+      // Assistant rows holding a tool-call JSON blob render no bubble
+      // server-side (chips stand in); never markdown-render them here.
+      try {
+        var d = JSON.parse(m.content);
+        if (d && typeof d === 'object' && d.tool_calls) return false;
+      } catch (e) { /* plain text, fine */ }
+      return true;
     });
     msgs.forEach(function (el, i) {
       var msg = replies[i];

@@ -212,7 +212,28 @@ def render_chat_page(
     `draft`, when present, renders the confirmation form (contract signing).
     """
     msgs = []
+    pending_calls: list[dict] = []  # tool calls awaiting their rendered chip
     for m in transcript:
+        if m["role"] == "tool":
+            call = pending_calls.pop(0) if pending_calls else {}
+            fn = call.get("function", {})
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except ValueError:
+                args = {}
+            query = next(iter(args.values()), "")
+            chip = chat_mod.chip_text(fn.get("name", "tool"), query, m["content"])
+            msgs.append(f'<div class="chip">&#128269; {html.escape(chip)}</div>')
+            continue
+        if m["role"] == "assistant":
+            try:
+                data = json.loads(m["content"])
+            except ValueError:
+                data = None
+            if isinstance(data, dict) and data.get("tool_calls"):
+                # The chips stand in for this row; no raw JSON on the page.
+                pending_calls.extend(data["tool_calls"])
+                continue
         cls = "user" if m["role"] == "user" else "assistant"
         who = "You" if m["role"] == "user" else "BoldTrader"
         msgs.append(
@@ -389,7 +410,12 @@ class Handler(BaseHTTPRequestHandler):
             if search_id:
                 search = chat_mod.get_search(conn, int(search_id))
             try:
-                reply, draft = chat_mod.next_reply(transcript, message, search)
+                reply, draft, turn_rows = chat_mod.next_reply(
+                    transcript,
+                    message,
+                    search,
+                    conn=conn if search is not None else None,
+                )
             except Exception as exc:
                 self._send(
                     200,
@@ -400,13 +426,7 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 )
                 return
-            transcript = transcript + [
-                {"role": "user", "content": message},
-                {"role": "assistant", "content": reply},
-            ]
-            if search is not None:
-                chat_mod.append_message(conn, search["id"], "user", message)
-                chat_mod.append_message(conn, search["id"], "assistant", reply)
+            transcript = transcript + turn_rows
         finally:
             conn.close()
         self._send(200, render_chat_page(transcript, draft=draft, search=search))

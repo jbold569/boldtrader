@@ -13,7 +13,64 @@ import json
 import re
 import sqlite3
 
-from .router import chat as llm_chat
+from . import router
+from .tools import search_listings, web_search
+
+# The two chat tools (ticket #6, ADR 0007): product identification only —
+# what BoldTrader has already seen, and live lookups. Not a browsing tool.
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_listings",
+            "description": (
+                "Search what BoldTrader has already seen: a keyword search "
+                "over stored listings. Use it to check whether we have "
+                "already seen a product or what it looked like. One short "
+                "keyword string."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Short keyword: a model number or product phrase.",
+                    }
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the live web for prices and product information. "
+                "Use it to identify the product the user wants and what it "
+                "typically costs. One short query string."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Short web search query.",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
+]
+
+# Maximum tool rounds per turn (ADR 0007); the next call is made without
+# tools so the model must answer.
+MAX_TOOL_ROUNDS = 3
+
+# Both tools join result blocks with a blank line, and every block starts
+# with the tool's own marker: "1. " (web) / "Title: " (store).
+_RESULT_BLOCK_RE = re.compile(r"^(?:\d+\. |Title: )")
 
 SYSTEM_PROMPT = """You author BoldTrader Bargain Searches: durable buying intents \
 for used computer hardware, fanned out as keyword searches across marketplaces.
@@ -32,6 +89,12 @@ Conversation rules:
   model numbers, 3 to 8 queries, each a phrase a seller might have typed.
 - Keep your visible reply short: at most a few sentences. Do NOT enumerate
   queries or exclusions as prose lists — the JSON block carries them.
+
+- You have two tools: search_listings (what BoldTrader has already seen)
+  and web_search (live prices and product info). Use them to clarify what
+  product the user wants: look up typical prices, check whether we have
+  already seen an item. They exist for product identification only — do
+  not browse endlessly; one or two targeted lookups per question.
 
 When your reply contains a draft, end the reply with a fenced JSON block and no
 prose after it, exactly this shape:
@@ -158,14 +221,140 @@ def _system_for(search: dict | None) -> str:
     )
 
 
+def chip_text(tool_name: str, query: str, output: str) -> str:
+    """One-line chip label for a stored tool result.
+
+    The hit count is derivable when every blank-line-separated block of
+    the tool output starts with the tool's own result marker ("1. " for
+    web results, "Title: " for store hits); an empty output or an error
+    string ("web search unavailable") yields name + query only.
+    """
+    if not query:
+        return tool_name
+    if output.startswith("No results"):
+        return f'{tool_name}: "{query}" — no results'
+    blocks = [b for b in output.split("\n\n") if b.strip()]
+    if blocks and all(_RESULT_BLOCK_RE.match(b) for b in blocks):
+        return f'{tool_name}: "{query}" — {len(blocks)} results'
+    return f'{tool_name}: "{query}"'
+
+
+def reconstruct_messages(rows: list[dict]) -> list[dict]:
+    """Replay stored conversation rows into OpenAI chat messages.
+
+    Assistant rows holding a tool-call JSON blob come back with
+    tool_calls intact; each following role="tool" row maps, in order, to
+    the corresponding tool call's id. Plain rows pass through unchanged.
+    """
+    messages: list[dict] = []
+    pending: list[str] = []  # tool_call ids awaiting their result row
+    for row in rows:
+        role = row["role"]
+        content = row["content"]
+        if role == "tool":
+            tool_call_id = pending.pop(0) if pending else ""
+            messages.append(
+                {"role": "tool", "tool_call_id": tool_call_id, "content": content}
+            )
+            continue
+        if role == "assistant":
+            try:
+                data = json.loads(content)
+            except (ValueError, TypeError):
+                data = None
+            if isinstance(data, dict) and data.get("tool_calls"):
+                for call in data["tool_calls"]:
+                    pending.append(call.get("id", ""))
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": data.get("content", ""),
+                        "tool_calls": data["tool_calls"],
+                    }
+                )
+                continue
+        messages.append({"role": role, "content": content})
+    return messages
+
+
+def _run_tool(call: dict) -> tuple[str, str, str]:
+    """Execute one tool call; never raises — failures become tool output."""
+    name = call.get("function", {}).get("name", "")
+    try:
+        args = json.loads(call["function"].get("arguments") or "{}")
+    except (ValueError, TypeError):
+        args = {}
+    fn = {"search_listings": search_listings, "web_search": web_search}.get(name)
+    if fn is None:
+        return name, "", f"tool error: unknown tool {name!r}"
+    try:
+        output = fn(**args)
+    except Exception as exc:  # tool blow-ups flow back to the model as output
+        query = next(iter(args.values()), "") if args else ""
+        return name, query, f"tool error: {exc}"
+    query = next(iter(args.values()), "") if args else ""
+    return name, query, output
+
+
 def next_reply(
-    transcript: list[dict], user_message: str, search: dict | None = None
-) -> tuple[str, dict | None]:
-    """One authoring turn: system + transcript + new message in, (reply, draft) out."""
+    transcript: list[dict],
+    user_message: str,
+    search: dict | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> tuple[str, dict | None, list[dict]]:
+    """One authoring turn with tool use (ticket #6, ADR 0007).
+
+    Returns ``(reply, draft, turn_rows)`` where turn_rows are this turn's
+    transcript rows in order: the user message, then per tool round the
+    assistant message (stored as JSON so tool_calls survive) plus one
+    role="tool" row per call, then the final assistant row. Pass conn to
+    persist the turn; omit it for a dry run.
+
+    At most MAX_TOOL_ROUNDS tool rounds; the call after that is made
+    without tools so the model must answer.
+    """
     messages = [{"role": "system", "content": _system_for(search)}]
-    messages += [{"role": m["role"], "content": m["content"]} for m in transcript]
+    messages += reconstruct_messages(transcript)
     messages.append({"role": "user", "content": user_message})
-    return parse_reply(llm_chat(messages))
+    turn_rows = [{"role": "user", "content": user_message}]
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        msg = router.chat_with_tools(messages, tools=TOOL_SCHEMAS)
+        tool_calls = msg.get("tool_calls")
+        text = msg.get("content") or ""
+        if not tool_calls:
+            reply, draft = parse_reply(text)
+            turn_rows.append({"role": "assistant", "content": reply})
+            if conn is not None:
+                for row in turn_rows:
+                    append_message(conn, search["id"], row["role"], row["content"])
+            return reply, draft, turn_rows
+        messages.append(
+            {
+                "role": "assistant",
+                "content": text,
+                "tool_calls": tool_calls,
+            }
+        )
+        turn_rows.append(
+            {"role": "assistant", "content": json.dumps({"content": text, "tool_calls": tool_calls})}
+        )
+        for call in tool_calls:
+            name, query, output = _run_tool(call)
+            messages.append(
+                {"role": "tool", "tool_call_id": call.get("id", ""), "content": output}
+            )
+            turn_rows.append({"role": "tool", "content": output})
+
+    # Round cap reached: ask once more without tools — the model must answer.
+    msg = router.chat_with_tools(messages)
+    text = msg.get("content") or ""
+    reply, draft = parse_reply(text)
+    turn_rows.append({"role": "assistant", "content": reply})
+    if conn is not None:
+        for row in turn_rows:
+            append_message(conn, search["id"], row["role"], row["content"])
+    return reply, draft, turn_rows
 
 
 def create_search(conn: sqlite3.Connection, draft: dict) -> int:

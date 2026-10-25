@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     summary TEXT NOT NULL,
     product_identity TEXT NOT NULL,
+    target_price REAL,
     location TEXT NOT NULL DEFAULT 'Kenmore, WA',
     queries TEXT NOT NULL DEFAULT '[]',
     exclusions TEXT NOT NULL DEFAULT '[]',
