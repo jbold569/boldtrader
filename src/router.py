@@ -22,8 +22,10 @@ SIFT_URL = ROUTER + "/v1/systemone"
 ENRICH_MODEL = "qwen3.8-flash-next-w4b-q8-halogen"
 SIFT_MODEL = "vllm-sr/d3-lite"
 
-# Chat authoring uses the same loaded model as enrichment (spec: chat + enrichment).
-CHAT_MODEL = ENRICH_MODEL
+# Chat pins the `-pair` variant: it is the container the router keeps
+# loaded, so chat turns never trigger a container swap. (2026-10-25: the
+# plain id caused a swap mid-turn; user directive to pin chat to -pair.)
+CHAT_MODEL = "qwen3.8-flash-next-w4b-q8-halogen-pair"
 
 TIMEOUT = 120  # seconds; enrichment reads 1-3k tokens per call
 SIFT_TIMEOUT = 300  # seconds; covers a cold decision-lane load

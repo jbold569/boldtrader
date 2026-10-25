@@ -64,6 +64,10 @@ _Avoid_: total, sticker price
 One seller's posting of one thing on one marketplace. The atomic unit of supply.
 _Avoid_: item, offer, posting
 
+
+**Listing Store**:
+The locally persisted record of every Listing BoldTrader has observed, together with whatever Enrichment has been recorded for it. Independent of any live Marketplace query: the Marketplace is where new supply arrives; the Listing Store is what we already know. Searched by keyword to recall previously seen listings.
+_Avoid_: database, cache, index, inventory
 **Search**:
 A keyword query submitted to a marketplace, returning a paginated set of Listings. Ephemeral by default — a Search becomes durable only when saved as a Watch.
 _Avoid_: query, filter
