@@ -217,7 +217,12 @@ def test_get_listing_tool_is_registered():
     from src import chat as chat_mod
 
     names = [s["function"]["name"] for s in chat_mod.TOOL_SCHEMAS]
-    assert names == ["search_listings", "web_search", "get_listing"]
+    assert names == [
+        "search_listings",
+        "web_search",
+        "get_listing",
+        "delete_bargain_search",
+    ]
 
 
 def test_get_listing_known_id_reaches_model(db, session, monkeypatch):

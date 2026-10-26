@@ -18,9 +18,9 @@ import sqlite3
 from . import router
 from .tools import get_listing, search_listings, web_search
 
-# The three chat tools (tickets #6, #10; ADR 0007): product identification
-# only — what BoldTrader has already seen, live lookups, and the full stored
-# record of one Listing. Not a browsing tool.
+# The four chat tools (tickets #6, #10, #11; ADR 0007): product identification
+# (what BoldTrader has already seen, live lookups, the full stored record of
+# one Listing) plus deleting a named Bargain Search (ticket #11).
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -88,6 +88,29 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_bargain_search",
+            "description": (
+                "Delete one Bargain Search and its own rows by its id. "
+                "Only call this when the user's own message explicitly "
+                "named that specific search (its id number or its exact "
+                "summary). Never delete on vague or blanket requests. One "
+                "search id string."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The Bargain Search id to delete.",
+                    }
+                },
+                "required": ["id"],
+            },
+        },
+    },
 ]
 
 # Maximum tool rounds per turn (ADR 0007, raised to 6 per ticket #10); the
@@ -126,15 +149,21 @@ state — ask the user where they want to search if they haven't said).
 - Keep your visible reply short: at most a few sentences. Do NOT enumerate
   queries or exclusions as prose lists — the JSON block carries them.
 
-- You have three tools: search_listings (keyword search over what
+- You have four tools: search_listings (keyword search over what
   BoldTrader has already seen), web_search (live prices and product
-  info), and get_listing (the full stored record of one Listing by its
+  info), get_listing (the full stored record of one Listing by its
   Listing ID — raw fields, Enrichment, authored description,
-  availability; Listing Store only, never a live fetch). Use them to
-  ground your answers: look up typical prices, check whether we have
-  already seen an item, pull the full record when the user points at a
-  specific listing. One or two targeted lookups per question; never
-  browse endlessly.
+  availability; Listing Store only, never a live fetch), and
+  delete_bargain_search (delete one Bargain Search by its id). Use the
+  lookup tools to ground your answers: check typical prices, whether we
+  have already seen an item, and pull the full record when the user
+  points at a specific listing. One or two targeted lookups per
+  question; never browse endlessly.
+- delete_bargain_search rule: only call it when the user's own message
+  explicitly named the specific search to delete — by its id number or
+  its exact summary. If the request is ambiguous ("clean up some of my
+  searches", "delete an old one") or names no target, refuse and ask
+  which specific search they mean. There is no bulk delete.
 
 When your reply contains a draft, end the reply with a fenced JSON block and no
 prose after it, exactly this shape:
@@ -298,13 +327,23 @@ def reconstruct_messages(rows: list[dict]) -> list[dict]:
     return messages
 
 
-def _run_tool(call: dict) -> tuple[str, str, str]:
-    """Execute one tool call; never raises — failures become tool output."""
+def _run_tool(call: dict, conn: sqlite3.Connection, user_message: str) -> tuple[str, str, str]:
+    """Execute one tool call; never raises — failures become tool output.
+
+    delete_bargain_search is checked against the latest user message here
+    (see handle_delete_bargain_search); the other tools stand alone.
+    """
     name = call.get("function", {}).get("name", "")
     try:
         args = json.loads(call["function"].get("arguments") or "{}")
     except (ValueError, TypeError):
         args = {}
+    if name == "delete_bargain_search":
+        query = str(args.get("id", ""))
+        try:
+            return name, query, handle_delete_bargain_search(conn, query, user_message)
+        except Exception as exc:
+            return name, query, f"tool error: {exc}"
     fn = {
         "search_listings": search_listings,
         "web_search": web_search,
@@ -371,7 +410,7 @@ def next_reply(
         )
         emit({"role": "assistant", "content": blob})
         for call in tool_calls:
-            name, query, output = _run_tool(call)
+            name, query, output = _run_tool(call, conn, user_message)
             messages.append(
                 {"role": "tool", "tool_call_id": call.get("id", ""), "content": output}
             )
@@ -526,3 +565,28 @@ def generate_title(message: str) -> str:
     if not title:
         return message[:40]
     return title
+
+
+def handle_delete_bargain_search(conn: sqlite3.Connection, id: str, user_message: str) -> str:
+    """Delete one named Bargain Search; refuse unless the user named it.
+
+    The explicit-naming check is a deliberately conservative mechanical
+    test, not NLP: the latest user message must contain the search id as
+    a whole number (\\b so 2 never matches inside 22) or the search's
+    exact summary string. Anything else (vague, blanket, or unnamed
+    requests) is refused and nothing is deleted.
+    """
+    raw = (id or "").strip()
+    if not raw.isdigit():
+        return f"Invalid search id {id!r}: expected a number."
+    search_id = int(raw)
+    search = get_search(conn, search_id)
+    if search is None:
+        return f"Bargain search #{search_id} not found."
+    named = re.search(rf"\b{search_id}\b", user_message) or (
+        search["summary"] and search["summary"] in user_message
+    )
+    if not named:
+        return "Refused: the user did not explicitly name this search for deletion."
+    delete_search(conn, search_id)
+    return f'Deleted bargain search #{search_id}: "{search["summary"]}"'
