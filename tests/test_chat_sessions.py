@@ -405,3 +405,62 @@ def test_existing_conversations_rows_survive_init(db):
     init_db(os.environ["BOLDTRADER_DB"])  # idempotent re-init
     rows = db.execute("SELECT role, content FROM conversations").fetchall()
     assert rows == [("user", "legacy row")]
+
+
+# --- multi-draft confirm cascade: each confirm keeps the rest alive ----------
+
+def _d(n: int) -> dict:
+    return {
+        "summary": f"search {n}",
+        "product_identity": f"thing {n}",
+        "queries": [f"q{n}"],
+        "exclusions": [],
+        "target_price": 100 + n,
+        "location": "Kenmore, WA",
+    }
+
+
+def _confirm_body2(draft: dict, remaining: list) -> dict:
+    return {
+        "summary": draft["summary"],
+        "product_identity": draft["product_identity"],
+        "queries": "\n".join(draft["queries"]),
+        "exclusions": "\n".join(draft["exclusions"]),
+        "target_price": str(draft["target_price"]),
+        "location": draft["location"],
+        "session_id": "1",
+        "remaining_drafts": json.dumps(remaining),
+    }
+
+
+def test_confirm_keeps_unconfirmed_drafts_on_page(site, monkeypatch):
+    d1, d2, d3 = _d(1), _d(2), _d(3)
+    blocks = "\n".join("```json\n" + json.dumps(d) + "\n```" for d in (d1, d2, d3))
+    fake = FakeLLM(text_msg("Three ideas.\n\n" + blocks))
+    monkeypatch.setattr("src.router.chat_with_tools", fake)
+    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
+    monkeypatch.setattr("src.server.fan_out", lambda *a: None)
+    _, chat_html = post(site + "/chat", {"message": "three searches please"})
+    assert chat_html.count('<form class="confirm"') == 3
+    # confirm the first: the other two must still be on the page to confirm
+    _, out1 = post(site + "/confirm", _confirm_body2(d1, [d2, d3]))
+    assert "2 draft(s) awaiting confirmation" in out1
+    assert out1.count('<form class="confirm"') == 2
+    assert 'value="search 2"' in out1
+    assert 'value="search 3"' in out1
+    # confirm the second: the third must still be there
+    _, out2 = post(site + "/confirm", _confirm_body2(d2, [d3]))
+    assert "1 draft(s) awaiting confirmation" in out2
+    assert out2.count('<form class="confirm"') == 1
+    assert 'value="search 3"' in out2
+    # confirm the last: nothing left
+    _, out3 = post(site + "/confirm", _confirm_body2(d3, []))
+    assert "awaiting confirmation" not in out3
+    assert out3.count('<form class="confirm"') == 0
+    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
+    summaries = [
+        r[0]
+        for r in conn.execute("SELECT summary FROM bargain_searches ORDER BY id")
+    ]
+    conn.close()
+    assert summaries == ["search 1", "search 2", "search 3"]

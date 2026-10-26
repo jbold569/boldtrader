@@ -237,6 +237,25 @@ def render_page(
     )
 
 
+def _remaining_drafts(form: dict) -> list[dict]:
+    """Re-parse the drafts left unconfirmed after one was submitted."""
+    raw = (form.get("remaining_drafts") or [""])[0]
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return []
+    out: list[dict] = []
+    if isinstance(data, list):
+        for d in data:
+            try:
+                out.append(chat_mod.validate_draft(d))
+            except (ValueError, chat_mod.DraftError):
+                pass
+    return out
+
+
 def render_chat_page(
     transcript: list[dict],
     drafts: list[dict] | None = None,
@@ -283,8 +302,9 @@ def render_chat_page(
         )
     session_id = (session or {}).get("id", "")
     confirm = ""
-    for draft in drafts or []:
+    for i, draft in enumerate(drafts or []):
         tp = draft.get("target_price")
+        remaining = json.dumps((drafts or [])[i + 1:])
         confirm += (
             '<form class="confirm" method="post" action="/confirm">'
             '<p class="note">Confirm this Bargain Search — edit anything inline first.</p>'
@@ -301,7 +321,7 @@ def render_chat_page(
             '<label>Location<input type="text" name="location" '
             f'value="{html.escape(draft.get("location") or "Kenmore, WA")}" '
             'placeholder="City, State"></label>'
-            f'<input type="hidden" name="session_id" value="{session_id}">'
+            f'<input type="hidden" name="remaining_drafts" value="{html.escape(remaining)}">'
             "<button type=\"submit\">Confirm Bargain Search</button>"
             "</form>"
         )
@@ -559,6 +579,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_confirm_post(self) -> None:
         """Contract signing: create the Bargain Search from the confirmed draft."""
         form = self._read_form()
+        pending = _remaining_drafts(form)
         try:
             draft = chat_mod.draft_from_form(form)
         except chat_mod.DraftError as exc:
@@ -571,7 +592,7 @@ class Handler(BaseHTTPRequestHandler):
                 "target_price": None,
                 "location": (form.get("location") or [""])[0],
             }
-            self._send(200, render_chat_page([], drafts=[echoed], banner=str(exc)))
+            self._send(200, render_chat_page([], drafts=[echoed] + pending, banner=str(exc)))
             return
         conn = get_connection()
         try:
@@ -592,8 +613,14 @@ class Handler(BaseHTTPRequestHandler):
             200,
             render_chat_page(
                 transcript,
+                drafts=pending,
                 session=session,
-                banner=f"Bargain Search #{new_id} saved (v{search['version']}).",
+                banner=f"Bargain Search #{new_id} saved (v{search['version']})."
+                + (
+                    f" {len(pending)} draft(s) awaiting confirmation."
+                    if pending
+                    else ""
+                ),
                 banner_cls="toast",
             ),
         )
