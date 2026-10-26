@@ -150,12 +150,12 @@ li.card .btns form.reject button:hover { background: var(--error-bg); }
 #desc-dialog button[type=submit] { border: 0; background: var(--accent); color: #fff; }
 
 /* ---- raw search page ---- */
-form.search { display: flex; gap: 8px; max-width: 560px; }
+.search-row { display: flex; gap: 8px; margin: 16px 24px 0; }
+.search-row form.search { flex: 7 1 0; max-width: none; min-width: 0; }
 form.search input[type=text] { flex: 1; padding: 8px 12px; font-size: 15px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); }
 form.search select { padding: 8px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); }
 form.search button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
-.searchbar { margin: 16px 24px 0; }
-#advanced-toggle { margin: 10px 24px 0; padding: 7px 16px; font-size: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); cursor: pointer; }
+#advanced-toggle { flex: 3 1 0; min-width: 0; padding: 8px 18px; font-size: 15px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); cursor: pointer; }
 #advanced-toggle:hover { border-color: var(--accent); color: var(--accent); }
 #advanced-toggle[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 nav.pager { padding: 8px 24px 32px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 14px; }

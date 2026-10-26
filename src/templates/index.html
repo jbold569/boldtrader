@@ -10,13 +10,15 @@
 </head>
 <body>
 $drawer
-<form class="search searchbar" method="get" action="/search">
-  <input type="text" name="q" value="$query" placeholder="Search listings…">
-  <input type="text" name="loc" value="$location" placeholder="Location (e.g. Kenmore, WA)">
-  $market_select
-  <button type="submit">Search</button>
-</form>
-<button type="button" id="advanced-toggle" aria-expanded="false">Advanced</button>
+<div class="search-row">
+  <form class="search searchbar" method="get" action="/search">
+    <input type="text" name="q" value="$query" placeholder="Search listings…">
+    <input type="text" name="loc" value="$location" placeholder="Location (e.g. Kenmore, WA)">
+    $market_select
+    <button type="submit">Search</button>
+  </form>
+  <button type="button" id="advanced-toggle" aria-expanded="false">Advanced</button>
+</div>
 $advanced
 $banner
 <div class="meta">$total results for <strong>$query</strong> · page $page of $total_pages · $source</div>
