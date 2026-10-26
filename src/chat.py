@@ -451,6 +451,24 @@ def create_search(conn: sqlite3.Connection, draft: dict) -> int:
     return cur.lastrowid
 
 
+
+def update_search(conn: sqlite3.Connection, search_id: int, draft: dict) -> None:
+    """Replace a Bargain Search's fields and bump its version."""
+    conn.execute(
+        "UPDATE bargain_searches SET summary=?, product_identity=?, target_price=?, "
+        "location=?, queries=?, exclusions=?, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (
+            draft["summary"],
+            draft["product_identity"],
+            draft["target_price"],
+            draft["location"],
+            json.dumps(draft["queries"]),
+            json.dumps(draft["exclusions"]),
+            search_id,
+        ),
+    )
+    conn.commit()
+
 def get_search(conn: sqlite3.Connection, search_id: int) -> dict | None:
     row = conn.execute(
         "SELECT id, summary, product_identity, location, target_price, queries, exclusions, version, status "

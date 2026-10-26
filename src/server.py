@@ -185,9 +185,11 @@ def _render_advanced(values: dict, hidden: bool = True) -> str:
         return str(val)
 
     hidden_attr = " hidden" if hidden else ""
+    sid = values.get("search_id")
+    hidden_id = f'<input type="hidden" name="search_id" value="{esc(str(sid))}">' if sid else ""
     return (
         f'<div id="advanced"{hidden_attr}>'
-        '<form class="confirm" method="post" action="/search">'
+        f'<form class="confirm" method="post" action="/search">{hidden_id}'
         f'<label>Summary<input type="text" name="summary" value="{esc(v("summary"))}"></label>'
         f'<label>Product identity<input type="text" name="product_identity" value="{esc(v("product_identity"))}"></label>'
         f'<label>Queries (one per line)<textarea name="queries" rows="5">{esc(v("queries"))}</textarea></label>'
@@ -333,9 +335,13 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_chat_get(parsed)
             return
         if parsed.path == "/search":
-            sid = (parse_qs(parsed.query).get("id") or [""])[0]
+            qs = parse_qs(parsed.query)
+            sid = (qs.get("id") or [""])[0]
             if sid:
-                self._handle_enhanced_get(parsed)
+                if (qs.get("modify") or [""])[0] == "1":
+                    self._handle_modify_get(sid)
+                else:
+                    self._handle_enhanced_get(parsed)
             else:
                 self._handle_raw_search(parsed)
             return
@@ -399,8 +405,26 @@ class Handler(BaseHTTPRequestHandler):
         self.cache.put(key, result)
         self._send(200, render_page(query, result, location, banner=banner, source=market))
 
+    def _handle_modify_get(self, sid: str) -> None:
+        """Pre-filled advanced form for modifying an existing Bargain Search;
+        unknown id falls back to the normal (closed-form) search page."""
+        conn = get_connection()
+        try:
+            search = chat_mod.get_search(conn, int(sid))
+        finally:
+            conn.close()
+        if search is None:
+            self._handle_raw_search(urlparse("/search"))
+            return
+        values = dict(search)
+        values["search_id"] = search["id"]
+        values["queries"] = "\n".join(search["queries"])
+        values["exclusions"] = "\n".join(search["exclusions"])
+        self._send(200, render_page(advanced=values, advanced_open=True))
+
     def _handle_search_post(self) -> None:
-        """Advanced Bargain Search: create the search, then open its enhanced view."""
+        """Advanced Bargain Search: create (or update with search_id), then
+        open the search's enhanced view."""
         form = self._read_form()
         if not (form.get("summary") or [""])[0].strip():
             # An omitted summary stands in as the product identity, pre-validation.
@@ -420,21 +444,29 @@ class Handler(BaseHTTPRequestHandler):
                     "location",
                 )
             }
+            editing = (form.get("search_id") or [""])[0]
+            if editing:
+                values["search_id"] = editing
             self._send(200, render_page(advanced=values, advanced_open=True, banner=str(exc)))
             return
         conn = get_connection()
         try:
-            new_id = chat_mod.create_search(conn, draft)
+            editing = (form.get("search_id") or [""])[0]
+            if editing:
+                chat_mod.update_search(conn, int(editing), draft)
+                saved_id = int(editing)
+            else:
+                saved_id = chat_mod.create_search(conn, draft)
         finally:
             conn.close()
         self.send_response(303)
-        self.send_header("Location", f"/search?id={new_id}")
+        self.send_header("Location", f"/search?id={saved_id}")
         self.send_header("Content-Length", "0")
         self.end_headers()
         # Fan-out starts after the redirect is on the wire, not before.
         threading.Thread(
             target=fan_out,
-            args=(self.fanout_marketplaces, new_id, draft["location"]),
+            args=(self.fanout_marketplaces, saved_id, draft["location"]),
             daemon=True,
         ).start()
 

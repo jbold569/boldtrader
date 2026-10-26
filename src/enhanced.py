@@ -286,6 +286,7 @@ def render_enhanced_page(
                 f'{"&all=1" if show_all else ""}&price=1">'
                 f"filter ≤ ${search['target_price']:,.0f}</a>"
             )
+    toggles.append(f'<a href="/search?id={search["id"]}&modify=1">Modify</a>')
     return _template.substitute(
         search_id=search["id"],
         summary=html.escape(search["summary"]),
