@@ -12,7 +12,7 @@ import json
 import pytest
 
 from src.db import init_db
-from src.tools import search_listings, web_search
+from src.tools import get_listing, search_listings, web_search
 
 
 def seed_listing(conn, lid, title, price=100.0, condition="good", snippet=""):
@@ -158,3 +158,76 @@ def test_web_search_formats_three_results(monkeypatch):
 
 def test_web_search_blank_query():
     assert web_search("   ") == "Query required."
+
+
+# --- get_listing (ticket #10) ----------------------------------------------
+
+
+def seed_full_listing(conn, lid="a1", availability="sold"):
+    raw = json.dumps(
+        {
+            "id": lid,
+            "title": "Dell OptiPlex micro i5-8500",
+            "price": 120.0,
+            "condition": "used",
+            "snippet": "small form factor",
+            "marketplace": "facebook",
+        }
+    )
+    conn.execute(
+        "INSERT INTO listings (id, raw, authored_description, availability) "
+        "VALUES (?, ?, ?, ?)",
+        (lid, raw, "tiny PC, boots fine", availability),
+    )
+    conn.commit()
+
+
+def seed_full_enrichment(conn, lid="a1"):
+    conn.execute(
+        "INSERT INTO enrichments (listing_id, product, condition, bundle, "
+        "confidence, status) VALUES (?, ?, ?, ?, ?, 'enriched')",
+        (
+            lid,
+            json.dumps({"manufacturer": "Dell", "model": "OptiPlex 3060", "config": "i5-8500/8GB/256GB"}),
+            "complete",
+            json.dumps(["power cord", "stand"]),
+            json.dumps({"manufacturer": "high", "model": "high", "config": "medium",
+                       "condition": "low", "bundle": "medium"}),
+        ),
+    )
+    conn.commit()
+
+
+def test_get_listing_known_id_returns_full_record(db):
+    seed_full_listing(db)
+    seed_full_enrichment(db)
+    out = get_listing("a1")
+    assert "a1" in out
+    assert "Dell OptiPlex micro i5-8500" in out          # raw title
+    assert "120" in out                                  # raw price
+    assert "small form factor" in out                     # raw snippet
+    assert "tiny PC, boots fine" in out                   # authored description
+    assert "sold" in out                                  # availability
+    assert "OptiPlex 3060" in out                        # enrichment product
+    assert "complete" in out                              # enrichment condition
+    assert "power cord" in out                            # bundle
+    assert "high" in out                                  # confidence
+
+
+def test_get_listing_without_enrichment(db):
+    seed_full_listing(db, lid="b2", availability="live")
+    out = get_listing("b2")
+    assert "b2" in out
+    assert "tiny PC, boots fine" in out
+    assert "Enrichment: none" in out
+
+
+def test_get_listing_unknown_id_says_not_seen(db):
+    seed_full_listing(db, lid="a1")
+    out = get_listing("zzz-999")
+    assert "not seen" in out
+    assert "zzz-999" in out
+
+
+def test_get_listing_blank_id(db):
+    assert get_listing("  ") == "Listing id required."

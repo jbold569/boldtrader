@@ -16,10 +16,11 @@ import re
 import sqlite3
 
 from . import router
-from .tools import search_listings, web_search
+from .tools import get_listing, search_listings, web_search
 
-# The two chat tools (ticket #6, ADR 0007): product identification only —
-# what BoldTrader has already seen, and live lookups. Not a browsing tool.
+# The three chat tools (tickets #6, #10; ADR 0007): product identification
+# only — what BoldTrader has already seen, live lookups, and the full stored
+# record of one Listing. Not a browsing tool.
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -64,14 +65,38 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_listing",
+            "description": (
+                "Get the full stored record of one Listing from the "
+                "Listing Store by its Listing ID: raw marketplace "
+                "fields, Enrichment, authored description, and "
+                "availability. Store only; never a live marketplace "
+                "fetch. One listing id string."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The Listing ID (marketplace listing id).",
+                    }
+                },
+                "required": ["id"],
+            },
+        },
+    },
 ]
 
-# Maximum tool rounds per turn (ADR 0007); the next call is made without
-# tools so the model must answer.
-MAX_TOOL_ROUNDS = 3
+# Maximum tool rounds per turn (ADR 0007, raised to 6 per ticket #10); the
+# next call is made without tools so the model must answer.
+MAX_TOOL_ROUNDS = 6
 
-# Both tools join result blocks with a blank line, and every block starts
-# with the tool's own marker: "1. " (web) / "Title: " (store).
+# Search tools join result blocks with a blank line, and every block starts
+# with the tool's own marker: "1. " (web) / "Title: " (store). get_listing
+# returns a single "Listing: " block.
 _RESULT_BLOCK_RE = re.compile(r"^(?:\d+\. |Title: )")
 
 SYSTEM_PROMPT = """You are the BoldTrader research and buying assistant: a \
@@ -101,10 +126,15 @@ state — ask the user where they want to search if they haven't said).
 - Keep your visible reply short: at most a few sentences. Do NOT enumerate
   queries or exclusions as prose lists — the JSON block carries them.
 
-- You have two tools: search_listings (what BoldTrader has already seen)
-  and web_search (live prices and product info). Use them to ground your
-  answers: look up typical prices, check whether we have already seen an
-  item. One or two targeted lookups per question; never browse endlessly.
+- You have three tools: search_listings (keyword search over what
+  BoldTrader has already seen), web_search (live prices and product
+  info), and get_listing (the full stored record of one Listing by its
+  Listing ID — raw fields, Enrichment, authored description,
+  availability; Listing Store only, never a live fetch). Use them to
+  ground your answers: look up typical prices, check whether we have
+  already seen an item, pull the full record when the user points at a
+  specific listing. One or two targeted lookups per question; never
+  browse endlessly.
 
 When your reply contains a draft, end the reply with a fenced JSON block and no
 prose after it, exactly this shape:
@@ -275,7 +305,11 @@ def _run_tool(call: dict) -> tuple[str, str, str]:
         args = json.loads(call["function"].get("arguments") or "{}")
     except (ValueError, TypeError):
         args = {}
-    fn = {"search_listings": search_listings, "web_search": web_search}.get(name)
+    fn = {
+        "search_listings": search_listings,
+        "web_search": web_search,
+        "get_listing": get_listing,
+    }.get(name)
     if fn is None:
         return name, "", f"tool error: unknown tool {name!r}"
     try:

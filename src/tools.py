@@ -63,6 +63,49 @@ def search_listings(keyword: str) -> str:
     return "\n\n".join(blocks)
 
 
+def get_listing(id: str) -> str:
+    """Full stored record of one Listing: raw fields, Enrichment,
+    authored description, availability (ticket #10).
+
+    Listing Store only — never a live Marketplace fetch. An id we have
+    never seen returns an explicit "not seen" string.
+    """
+    if not id or not id.strip():
+        return "Listing id required."
+    lid = id.strip()
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT l.raw, l.authored_description, l.availability, "
+            "e.product, e.condition, e.bundle, e.confidence, e.status "
+            "FROM listings l LEFT JOIN enrichments e ON e.listing_id = l.id "
+            "WHERE l.id = ?",
+            (lid,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return f'Listing "{lid}" not seen.'
+    lines = [f"Listing: {lid}"]
+    for key, value in json.loads(row["raw"]).items():
+        lines.append(f"{key}: {value}")
+    lines.append(f"Authored description: {row['authored_description'] or 'none'}")
+    lines.append(f"Availability: {row['availability'] or 'live'}")
+    if row["status"] == "enriched" and row["product"]:
+        product = json.loads(row["product"])
+        resolved = " ".join(str(v) for v in product.values() if v)
+        bundle = ", ".join(json.loads(row["bundle"])) if row["bundle"] else "none"
+        confidence = json.dumps(row["confidence"]) if row["confidence"] else "none"
+        lines.append(
+            f"Enrichment: {resolved}, condition: {row['condition']}, "
+            f"bundle: {bundle}, confidence: {confidence}"
+        )
+    else:
+        lines.append("Enrichment: none")
+    return "\n".join(lines)
+
+
 def web_search(query: str) -> str:
     """Top-3 organic DuckDuckGo results as compact text (ADR 0007).
 

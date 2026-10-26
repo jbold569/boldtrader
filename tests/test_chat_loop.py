@@ -185,11 +185,11 @@ def test_tool_round_ignores_content_in_that_round(db, monkeypatch):
     assert draft is None
 
 
-# --- scenario (c): 3-round cap, 4th request has no tools --------------------
+# --- scenario (c): 6-round cap, 7th request has no tools --------------------
 
-def test_three_round_cap_forces_answer_without_tools(db, session, fake_web_ok, monkeypatch):
+def test_six_round_cap_forces_answer_without_tools(db, session, fake_web_ok, monkeypatch):
     calls = [
-        tool_msg(tc(f"c{i}", "search_listings", {"keyword": "z440"})) for i in range(3)
+        tool_msg(tc(f"c{i}", "search_listings", {"keyword": "z440"})) for i in range(6)
     ] + [text_msg("Forced final answer.")]
     fake = FakeLLM(*calls)
     monkeypatch.setattr("src.router.chat_with_tools", fake)
@@ -199,22 +199,69 @@ def test_three_round_cap_forces_answer_without_tools(db, session, fake_web_ok, m
         [], "keep looking", conn=db, session_id=session["id"]
     )
     assert reply == "Forced final answer."
-    assert len(fake.calls) == 4
-    for i in range(3):
+    assert len(fake.calls) == 7
+    for i in range(6):
         assert fake.calls[i]["kwargs"]["tools"] == chat_mod.TOOL_SCHEMAS
-    assert "tools" not in fake.calls[3]["kwargs"]
-    # 3 tool rounds persisted: user + 3×(assistant JSON + tool) + final assistant
+    assert "tools" not in fake.calls[6]["kwargs"]
+    # 6 tool rounds persisted: user + 6×(assistant JSON + tool) + final assistant
     rows = stored_rows(db, session["id"])
-    assert [r["role"] for r in rows] == [
-        "user",
-        "assistant",
-        "tool",
-        "assistant",
-        "tool",
-        "assistant",
-        "tool",
-        "assistant",
+    assert [r["role"] for r in rows] == ["user"] + ["assistant", "tool"] * 6 + [
+        "assistant"
     ]
+
+
+# --- get_listing through the loop (ticket #10) ------------------------------
+
+
+def test_get_listing_tool_is_registered():
+    from src import chat as chat_mod
+
+    names = [s["function"]["name"] for s in chat_mod.TOOL_SCHEMAS]
+    assert names == ["search_listings", "web_search", "get_listing"]
+
+
+def test_get_listing_known_id_reaches_model(db, session, monkeypatch):
+    from tests.test_tools import seed_full_listing, seed_full_enrichment
+
+    seed_full_listing(db)
+    seed_full_enrichment(db)
+    fake = FakeLLM(
+        tool_msg(tc("c1", "get_listing", {"id": "a1"})),
+        text_msg("Got it: sold, complete."),
+    )
+    monkeypatch.setattr("src.router.chat_with_tools", fake)
+    from src import chat as chat_mod
+
+    reply, _draft, _rows = chat_mod.next_reply(
+        [], "tell me about listing a1", conn=db, session_id=session["id"]
+    )
+    assert reply == "Got it: sold, complete."
+    tool_row = fake.calls[1]["messages"][-1]
+    assert tool_row["role"] == "tool"
+    assert "OptiPlex 3060" in tool_row["content"]
+    assert "tiny PC, boots fine" in tool_row["content"]
+
+
+def test_get_listing_unknown_id_turn_continues(db, session, monkeypatch):
+    fake = FakeLLM(
+        tool_msg(tc("c1", "get_listing", {"id": "nope"})),
+        text_msg("We have never seen that one."),
+    )
+    monkeypatch.setattr("src.router.chat_with_tools", fake)
+    from src import chat as chat_mod
+
+    reply, _draft, rows = chat_mod.next_reply(
+        [], "what about listing nope?", conn=db, session_id=session["id"]
+    )
+    assert reply == "We have never seen that one."
+    assert 'Listing "nope" not seen.' in fake.calls[1]["messages"][-1]["content"]
+
+
+def test_get_listing_chip_renders_name_and_id():
+    from src import chat as chat_mod
+
+    out = 'Listing "nope" not seen.'
+    assert chat_mod.chip_text("get_listing", "nope", out) == 'get_listing: "nope"'
 
 
 # --- scenario (d): web_search fails inside the loop --------------------------
