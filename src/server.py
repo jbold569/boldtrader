@@ -200,6 +200,9 @@ def _render_advanced(values: dict, hidden: bool = True) -> str:
     )
 
 
+_drawer = chat_mod.drawer_html
+
+
 def render_page(
     query: str = "",
     result: SearchResult | None = None,
@@ -208,6 +211,7 @@ def render_page(
     source: str = "offerup",
     advanced: dict | None = None,
     advanced_open: bool = False,
+    drawer: str = "",
 ) -> str:
     if result is None:
         result = SearchResult()
@@ -227,6 +231,7 @@ def render_page(
         rows=_render_rows(result),
         pagination=_render_pagination(result.page, result.total_pages, query, location, source),
         advanced=_render_advanced(advanced or {}, hidden=not advanced_open),
+        drawer=drawer or _drawer(),
     )
 
 
@@ -236,6 +241,7 @@ def render_chat_page(
     session: dict | None = None,
     banner: str = "",
     banner_cls: str = "banner",
+    drawer: str = "",
 ) -> str:
     """Render the chat page for a Chat Session.
 
@@ -308,6 +314,7 @@ def render_chat_page(
         confirm=confirm,
         transcript_json=html.escape(json.dumps(transcript)),
         session_id=session_id,
+        drawer=drawer or _drawer(),
     )
 
 
@@ -454,10 +461,15 @@ class Handler(BaseHTTPRequestHandler):
         return parse_qs(body)
 
     def _handle_chat_get(self, parsed) -> None:
-        """Open the chat: no id resumes the latest session; ?id=N opens that one."""
+        """Open the chat: no id resumes the latest session; ?id=N opens one;
+        ?new=1 (the drawer's New Chat) always starts a fresh empty chat."""
         session_id = (parse_qs(parsed.query).get("id") or [""])[0]
+        fresh = (parse_qs(parsed.query).get("new") or [""])[0] == "1"
         conn = get_connection()
         try:
+            if fresh:
+                self._send(200, render_chat_page([]))
+                return
             if session_id:
                 session = chat_mod.get_session(conn, int(session_id))
                 if session is None:
@@ -586,7 +598,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send(
             200,
             enhanced.render_enhanced_page(
-                state, show_all=show_all, price_filter=price_filter, banner=banner
+                state,
+                show_all=show_all,
+                price_filter=price_filter,
+                banner=banner,
+                drawer=_drawer(),
             ),
         )
         liveness.start(int(sid))

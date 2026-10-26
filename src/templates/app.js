@@ -19,8 +19,33 @@
       localStorage.setItem('bt-theme', next);
       apply(next);
     });
+    // Drawer: hamburger opens the left side drawer; scrim, close button and
+    // Esc close it. Identical behavior at every viewport width (ticket #12).
+    var drawer = document.getElementById('drawer');
+    var menuBtn = document.getElementById('menu-toggle');
+    if (drawer && menuBtn) {
+      function setOpen(open) {
+        drawer.classList.toggle('open', open);
+        document.getElementById('scrim').classList.toggle('show', open);
+        menuBtn.setAttribute('aria-expanded', String(open));
+        if (open) drawer.focus();
+        else menuBtn.focus();
+      }
+      menuBtn.addEventListener('click', function () {
+        setOpen(!drawer.classList.contains('open'));
+      });
+      document.getElementById('scrim').addEventListener('click', function () {
+        setOpen(false);
+      });
+      document.getElementById('drawer-close').addEventListener('click', function () {
+        setOpen(false);
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && drawer.classList.contains('open')) setOpen(false);
+      });
+    }
     var path = location.pathname;
-    document.querySelectorAll('.navbar .links a').forEach(function (a) {
+    document.querySelectorAll('#drawer nav a').forEach(function (a) {
       var href = a.getAttribute('href').split('?')[0];
       if (href === path || (path === '/' && href === '/searches')) a.classList.add('active');
     });

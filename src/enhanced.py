@@ -16,6 +16,10 @@ import json
 import sqlite3
 import string
 from pathlib import Path
+from .chat import drawer_html
+
+
+_drawer = drawer_html
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "enhanced.html"
 LIST_TEMPLATE_PATH = Path(__file__).parent / "templates" / "searches.html"
@@ -258,7 +262,9 @@ def render_enhanced_page(
     show_all: bool = False,
     price_filter: bool = False,
     banner: str = "",
+    drawer: str = "",
 ) -> str:
+    drawer = drawer or _drawer()
     search = state["search"]
     cards = state["cards"]
     toggles = [
@@ -289,6 +295,7 @@ def render_enhanced_page(
         banner=f'<div class="banner">{html.escape(banner)}</div>' if banner else "",
         rows="\n".join(_render_card(c, search["id"]) for c in cards)
         or '<li class="card">No listings in this view.</li>',
+        drawer=drawer,
     )
 
 
@@ -326,7 +333,10 @@ def list_searches(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
-def render_searches_page(searches: list[dict], banner: str = "") -> str:
+def render_searches_page(
+    searches: list[dict], banner: str = "", drawer: str = ""
+) -> str:
+    drawer = drawer or _drawer()
     rows = []
     for s in searches:
         rows.append(
@@ -345,4 +355,5 @@ def render_searches_page(searches: list[dict], banner: str = "") -> str:
     return _list_template.substitute(
         banner=f'<div class="banner">{html.escape(banner)}</div>' if banner else "",
         rows="\n".join(rows) or '<li class="row">No bargain searches yet.</li>',
+        drawer=drawer,
     )

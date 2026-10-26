@@ -48,15 +48,27 @@
 * { box-sizing: border-box; }
 body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: var(--fg); background: var(--bg); }
 
-/* ---- nav bar ---- */
-.navbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 20px; min-height: 52px; }
-.navbar .brand { font-size: 17px; font-weight: 700; color: var(--fg); text-decoration: none; margin-right: 4px; }
-.navbar .links { display: flex; gap: 18px; flex: 1; overflow-x: auto; }
-.navbar .links a { color: var(--accent); text-decoration: none; font-size: 14px; white-space: nowrap; padding: 14px 2px; }
-.navbar .links a:hover { text-decoration: underline; }
-.navbar .links a.active { font-weight: 700; border-bottom: 2px solid var(--accent); }
-#theme-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 14px; cursor: pointer; color: var(--fg); flex: 0 0 auto; }
+/* ---- hamburger + side drawer (ticket #12) ---- */
+.topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 14px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; }
+#menu-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-size: 18px; line-height: 1; cursor: pointer; color: var(--fg); }
+#menu-toggle:hover { border-color: var(--accent); }
+#theme-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 14px; cursor: pointer; color: var(--fg); }
 #theme-toggle:hover { border-color: var(--accent); }
+#scrim { display: none; position: fixed; inset: 0; z-index: 190; background: rgba(0, 0, 0, 0.35); }
+#scrim.show { display: block; }
+#drawer { position: fixed; top: 0; left: 0; bottom: 0; z-index: 200; width: 280px; max-width: 85vw; overflow-y: auto; background: var(--card); color: var(--fg); border-right: 1px solid var(--border); padding: 16px 18px 32px; transform: translateX(-100%); transition: transform 0.18s ease-out; }
+#drawer.open { transform: translateX(0); }
+#drawer:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+#drawer-close { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 14px; cursor: pointer; color: var(--muted); float: right; }
+#drawer-close:hover { border-color: var(--accent); color: var(--fg); }
+#drawer nav { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+#drawer nav a { color: var(--accent); text-decoration: none; font-size: 15px; padding: 8px 6px; border-radius: 6px; }
+#drawer nav a:hover { background: var(--bg); text-decoration: underline; }
+#drawer nav a.active { font-weight: 700; }
+#drawer h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 22px 0 6px; }
+#drawer ul.sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+#drawer ul.sessions a { display: block; color: var(--fg); text-decoration: none; font-size: 14px; padding: 7px 6px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#drawer ul.sessions a:hover { background: var(--bg); color: var(--accent); }
 
 /* ---- shared page furniture ---- */
 .banner { background: var(--error-bg); color: var(--error-fg); padding: 10px 24px; font-size: 14px; }
@@ -192,8 +204,6 @@ form.say button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 
 
 /* ---- responsive ---- */
 @media (max-width: 600px) {
-  .navbar { padding: 0 14px; gap: 12px; }
-  .navbar .links { gap: 14px; }
   .banner { padding: 8px 14px; }
   .meta { padding: 10px 14px 0; }
   ul.results { padding: 10px 14px 24px; }

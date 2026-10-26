@@ -11,9 +11,11 @@ table.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import sqlite3
+from .db import get_connection
 
 from . import router
 from .tools import get_listing, search_listings, web_search
@@ -590,3 +592,53 @@ def handle_delete_bargain_search(conn: sqlite3.Connection, id: str, user_message
         return "Refused: the user did not explicitly name this search for deletion."
     delete_search(conn, search_id)
     return f'Deleted bargain search #{search_id}: "{search["summary"]}"'
+
+
+# --- Session browser drawer (ticket #12) -------------------------------------
+
+def list_sessions(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
+    """The most recently updated Chat Sessions, newest first."""
+    rows = conn.execute(
+        "SELECT id, title FROM chat_sessions ORDER BY updated_at DESC, id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [{"id": r[0], "title": r[1]} for r in rows]
+
+
+def render_drawer(sessions: list[dict]) -> str:
+    """The hamburger + left side drawer shared by every page (ticket #12):
+    static navigation plus the recent-session browser. Static markup lives
+    here so all pages render an identical drawer at every viewport width."""
+    esc = html.escape
+    items = "\n".join(
+        f'<li><a href="/chat?id={s["id"]}">{esc(s["title"])}</a></li>'
+        for s in sessions
+    )
+    return (
+        '<div class="topbar">'
+        '<button id="menu-toggle" aria-label="Open menu" aria-expanded="false" '
+        'aria-controls="drawer">&#9776;</button>'
+        '<button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>'
+        "</div>"
+        '<div id="scrim"></div>'
+        '<aside id="drawer" tabindex="-1" aria-label="Menu">'
+        '<button id="drawer-close" aria-label="Close menu">&#10005;</button>'
+        "<nav>"
+        '<a href="/">Home</a>'
+        '<a href="/search">Search</a>'
+        '<a href="/chat">Chat</a>'
+        '<a href="/chat?new=1" id="new-chat">New Chat</a>'
+        "</nav>"
+        '<h2>Recent sessions</h2>'
+        f'<ul class="sessions">\n{items}\n</ul>'
+        "</aside>"
+    )
+
+
+def drawer_html() -> str:
+    """Build the drawer from the DB: nav links + recent session browser."""
+    conn = get_connection()
+    try:
+        return render_drawer(list_sessions(conn))
+    finally:
+        conn.close()

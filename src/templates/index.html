@@ -9,15 +9,7 @@
 <script src="/app.js" defer></script>
 </head>
 <body>
-<nav class="navbar">
-  <a class="brand" href="/">BoldTrader</a>
-  <div class="links">
-    <a href="/searches">Bargain Searches</a>
-    <a href="/chat">New Search</a>
-    <a href="/search">Search</a>
-  </div>
-  <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
-</nav>
+$drawer
 <form class="search searchbar" method="get" action="/search">
   <input type="text" name="q" value="$query" placeholder="Search listings…">
   <input type="text" name="loc" value="$location" placeholder="Location (e.g. Kenmore, WA)">
