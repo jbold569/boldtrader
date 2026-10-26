@@ -50,6 +50,9 @@ body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: var(
 
 /* ---- hamburger + side drawer (ticket #12) ---- */
 .topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 14px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; }
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.brand { color: var(--accent); font-size: 18px; font-weight: 700; text-decoration: none; letter-spacing: 0.3px; }
+.brand:hover { text-decoration: underline; }
 #menu-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-size: 18px; line-height: 1; cursor: pointer; color: var(--fg); }
 #menu-toggle:hover { border-color: var(--accent); }
 #theme-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 14px; cursor: pointer; color: var(--fg); }
@@ -152,6 +155,9 @@ form.search input[type=text] { flex: 1; padding: 8px 12px; font-size: 15px; bord
 form.search select { padding: 8px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); }
 form.search button { padding: 8px 18px; font-size: 15px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
 .searchbar { margin: 16px 24px 0; }
+#advanced-toggle { margin: 10px 24px 0; padding: 7px 16px; font-size: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); cursor: pointer; }
+#advanced-toggle:hover { border-color: var(--accent); color: var(--accent); }
+#advanced-toggle[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 nav.pager { padding: 8px 24px 32px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 14px; }
 nav.pager a, nav.pager span.cur { padding: 6px 11px; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--accent); background: var(--card); }
 nav.pager span.cur { background: var(--accent); color: #fff; border-color: var(--accent); }

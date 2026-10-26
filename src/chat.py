@@ -634,8 +634,11 @@ def render_drawer(sessions: list[dict]) -> str:
     )
     return (
         '<div class="topbar">'
+        '<div class="topbar-left">'
         '<button id="menu-toggle" aria-label="Open menu" aria-expanded="false" '
         'aria-controls="drawer">&#9776;</button>'
+        '<a class="brand" href="/">BoldTrader</a>'
+        '</div>'
         '<button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>'
         "</div>"
         '<div id="scrim"></div>'
