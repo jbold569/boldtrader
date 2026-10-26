@@ -167,8 +167,8 @@ state — ask the user where they want to search if they haven't said).
   searches", "delete an old one") or names no target, refuse and ask
   which specific search they mean. There is no bulk delete.
 
-When your reply contains a draft, end the reply with a fenced JSON block and no
-prose after it, exactly this shape:
+When you propose one or more Bargain Searches, end the reply with one fenced
+JSON block per proposed search, back to back, and no prose after the last block:
 
 ```json
 {
@@ -186,25 +186,27 @@ prose after it, exactly this shape:
 class DraftError(ValueError):
     """A draft that violates the Bargain Search contract."""
 
+_DRAFT_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
-_DRAFT_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
+def parse_reply(content: str) -> tuple[str, list[dict]]:
+    """Split an LLM reply into visible text and the list of proposed drafts.
 
-
-def parse_reply(content: str) -> tuple[str, dict | None]:
-    """Split an LLM reply into visible text and a validated draft.
-
-    A missing or contract-violating draft is not an error: the reply renders
-    as plain chat text and the conversation continues.
+    The model may propose several Bargain Searches in one reply, each in
+    its own fenced JSON block; one confirmation form renders per draft.
+    A contract-violating block is not an error: it is skipped (and stays
+    visible in the text) while the valid ones still count.
     """
-    m = _DRAFT_RE.search(content)
-    if m is None:
-        return content, None
-    try:
-        draft = validate_draft(json.loads(m.group(1)))
-    except (ValueError, DraftError):
-        return content, None
-    text = (content[: m.start()] + content[m.end():]).strip()
-    return text, draft
+    drafts: list[dict] = []
+
+    def _collect(m: re.Match) -> str:
+        try:
+            drafts.append(validate_draft(json.loads(m.group(1))))
+        except (ValueError, DraftError):
+            return m.group(0)
+        return ""
+
+    text = _DRAFT_RE.sub(_collect, content).strip()
+    return text, drafts
 
 
 def validate_draft(raw: dict) -> dict:
@@ -367,11 +369,12 @@ def next_reply(
     user_message: str,
     conn: sqlite3.Connection | None = None,
     session_id: int | None = None,
-) -> tuple[str, dict | None, list[dict]]:
+) -> tuple[str, list[dict], list[dict]]:
     """One chat turn with tool use (ticket #8, ADR 0008).
 
-    Returns ``(reply, draft, turn_rows)`` where turn_rows are this turn's
-    transcript rows in order: the user message, then per tool round the
+    Returns ``(reply, drafts, turn_rows)`` where drafts are the validated
+    Bargain Search drafts proposed this turn (possibly several, one per
+    search) and turn_rows are this turn's
     assistant message (stored as JSON so tool_calls survive) plus one
     role="tool" row per call, then the final assistant row. Pass conn and
     session_id to persist each row on the Chat Session as it is produced;
@@ -399,9 +402,9 @@ def next_reply(
         tool_calls = msg.get("tool_calls")
         text = msg.get("content") or ""
         if not tool_calls:
-            reply, draft = parse_reply(text)
+            reply, drafts = parse_reply(text)
             emit({"role": "assistant", "content": reply})
-            return reply, draft, turn_rows
+            return reply, drafts, turn_rows
         blob = json.dumps({"content": text, "tool_calls": tool_calls})
         messages.append(
             {
@@ -421,9 +424,9 @@ def next_reply(
     # Round cap reached: ask once more without tools — the model must answer.
     msg = router.chat_with_tools(messages)
     text = msg.get("content") or ""
-    reply, draft = parse_reply(text)
+    reply, drafts = parse_reply(text)
     emit({"role": "assistant", "content": reply})
-    return reply, draft, turn_rows
+    return reply, drafts, turn_rows
 
 
 def _touch(conn: sqlite3.Connection, session_id: int) -> None:

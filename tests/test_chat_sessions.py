@@ -195,11 +195,11 @@ def test_reply_turn_persists_to_session(db, monkeypatch):
     fake = FakeLLM(text_msg("They run about $200."))
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     sid = chat_mod.create_session(db, "t")
-    reply, draft, turn_rows = chat_mod.next_reply(
+    reply, drafts, turn_rows = chat_mod.next_reply(
         [], "what should a used HP Z440 go for?", conn=db, session_id=sid
     )
     assert reply == "They run about $200."
-    assert draft is None
+    assert drafts == []
     assert turn_rows == [
         {"role": "user", "content": "what should a used HP Z440 go for?"},
         {"role": "assistant", "content": "They run about $200."},

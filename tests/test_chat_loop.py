@@ -110,9 +110,9 @@ def test_plain_answer_unchanged(monkeypatch):
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    reply, draft, rows = chat_mod.next_reply([], "I want a used workstation")
-    assert draft["product_identity"] == "HP Z440 workstation"
-    assert draft["summary"] == DRAFT["summary"]
+    reply, drafts, rows = chat_mod.next_reply([], "I want a used workstation")
+    assert drafts[0]["product_identity"] == "HP Z440 workstation"
+    assert drafts[0]["summary"] == DRAFT["summary"]
     assert reply == "Settled then."
     assert "```" not in reply
     # exactly the user turn + the assistant answer; no tool round
@@ -128,9 +128,9 @@ def test_plain_answer_without_draft_unchanged(monkeypatch):
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    reply, draft, _rows = chat_mod.next_reply([], "looking for a PC")
+    reply, drafts, _rows = chat_mod.next_reply([], "looking for a PC")
     assert reply == "What is your budget?"
-    assert draft is None
+    assert drafts == []
     assert len(fake.calls) == 1
 
 
@@ -144,10 +144,10 @@ def test_one_tool_round_persists_and_answers(db, session, fake_web_ok, monkeypat
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    reply, draft, _rows = chat_mod.next_reply(
+    reply, drafts, _rows = chat_mod.next_reply(
         [], "what should a used HP Z440 go for?", conn=db, session_id=session["id"]
     )
-    assert draft["product_identity"] == "HP Z440 workstation"
+    assert drafts[0]["product_identity"] == "HP Z440 workstation"
     assert reply == "They run about $150-250."
     assert len(fake.calls) == 2
     # the tool round request carried the tools
@@ -180,9 +180,9 @@ def test_tool_round_ignores_content_in_that_round(db, monkeypatch):
     monkeypatch.setattr("src.router.chat_with_tools", fake)
     from src import chat as chat_mod
 
-    reply, draft, _rows = chat_mod.next_reply([], "have we seen any Z440s?")
+    reply, drafts, _rows = chat_mod.next_reply([], "have we seen any Z440s?")
     assert reply == "final answer"
-    assert draft is None
+    assert drafts == []
 
 
 # --- scenario (c): 6-round cap, 7th request has no tools --------------------
@@ -391,3 +391,61 @@ def test_chip_text_undecorated_when_count_not_derivable():
     )
     assert chat_mod.chip_text("web_search", "q", "") == 'web_search: "q"'
     assert chat_mod.chip_text("web_search", "", "") == "web_search"
+
+
+# --- multi-draft replies: one form per proposed search ----------------------
+
+def _block(d: dict) -> str:
+    return "```json\n" + json.dumps(d) + "\n```"
+
+
+def _variant(n: int) -> dict:
+    return {
+        "summary": f"search {n}",
+        "product_identity": f"thing {n}",
+        "queries": [f"q{n}"],
+        "exclusions": [],
+        "target_price": 100 + n,
+        "location": "Kenmore, WA",
+    }
+
+
+def test_parse_reply_multiple_draft_blocks():
+    from src import chat as chat_mod
+
+    content = "I found three things.\n\n" + _block(_variant(1)) + "\n" + _block(_variant(2)) + "\n" + _block(_variant(3))
+    text, drafts = chat_mod.parse_reply(content)
+    assert len(drafts) == 3
+    assert [d["summary"] for d in drafts] == ["search 1", "search 2", "search 3"]
+    assert text == "I found three things."
+    assert "```" not in text
+
+
+def test_parse_reply_invalid_block_skipped_but_visible():
+    from src import chat as chat_mod
+
+    content = (
+        "Two ideas:\n\n"
+        + _block(_variant(1))
+        + "\n"
+        + _block({"summary": "", "product_identity": ""})
+        + "\n"
+        + _block(_variant(2))
+    )
+    text, drafts = chat_mod.parse_reply(content)
+    assert len(drafts) == 2
+    assert [d["summary"] for d in drafts] == ["search 1", "search 2"]
+    # the invalid block stays visible; it was never turned into a form
+    assert '"summary": ""' in text
+
+
+def test_next_reply_returns_draft_list(monkeypatch):
+    fake = FakeLLM(
+        text_msg("Here you go.\n\n" + _block(_variant(1)) + "\n" + _block(_variant(2)))
+    )
+    monkeypatch.setattr("src.router.chat_with_tools", fake)
+    from src import chat as chat_mod
+
+    reply, drafts, _rows = chat_mod.next_reply([], "two searches please")
+    assert reply == "Here you go."
+    assert len(drafts) == 2

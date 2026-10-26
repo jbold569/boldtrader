@@ -239,7 +239,7 @@ def render_page(
 
 def render_chat_page(
     transcript: list[dict],
-    draft: dict | None = None,
+    drafts: list[dict] | None = None,
     session: dict | None = None,
     banner: str = "",
     banner_cls: str = "banner",
@@ -249,8 +249,8 @@ def render_chat_page(
 
     `transcript` is the session's message list loaded from the DB; it also
     travels through the page in a hidden JSON field so chat.js can
-    markdown-render assistant replies. `draft`, when present, renders the
-    confirmation form (contract signing).
+    markdown-render assistant replies. `drafts`, when present, render one
+    confirmation form per proposed Bargain Search (contract signing).
     """
     msgs = []
     pending_calls: list[dict] = []  # tool calls awaiting their rendered chip
@@ -282,9 +282,10 @@ def render_chat_page(
             f"{html.escape(m['content'])}</div>"
         )
     session_id = (session or {}).get("id", "")
-    if draft is not None:
+    confirm = ""
+    for draft in drafts or []:
         tp = draft.get("target_price")
-        confirm = (
+        confirm += (
             '<form class="confirm" method="post" action="/confirm">'
             '<p class="note">Confirm this Bargain Search — edit anything inline first.</p>'
             '<label>Summary<input type="text" name="summary" '
@@ -304,8 +305,6 @@ def render_chat_page(
             "<button type=\"submit\">Confirm Bargain Search</button>"
             "</form>"
         )
-    else:
-        confirm = ""
     heading = (session or {}).get("title") or "New chat"
     return _chat_template.substitute(
         heading=html.escape(heading),
@@ -537,7 +536,7 @@ class Handler(BaseHTTPRequestHandler):
                 session = chat_mod.get_session(conn, sid)
             transcript = chat_mod.load_session_transcript(conn, session["id"])
             try:
-                reply, draft, turn_rows = chat_mod.next_reply(
+                reply, drafts, turn_rows = chat_mod.next_reply(
                     transcript, message, conn=conn, session_id=session["id"]
                 )
             except Exception as exc:
@@ -555,7 +554,7 @@ class Handler(BaseHTTPRequestHandler):
             transcript = transcript + turn_rows
         finally:
             conn.close()
-        self._send(200, render_chat_page(transcript, draft=draft, session=session))
+        self._send(200, render_chat_page(transcript, drafts=drafts, session=session))
 
     def _handle_confirm_post(self) -> None:
         """Contract signing: create the Bargain Search from the confirmed draft."""
@@ -572,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
                 "target_price": None,
                 "location": (form.get("location") or [""])[0],
             }
-            self._send(200, render_chat_page([], draft=echoed, banner=str(exc)))
+            self._send(200, render_chat_page([], drafts=[echoed], banner=str(exc)))
             return
         conn = get_connection()
         try:
