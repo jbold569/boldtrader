@@ -1,7 +1,9 @@
 """BoldTrader: marketplace search + Bargain Search chat authoring.
 
 Run:  .venv/bin/python -m src.server [--port 10000]   (dev ports live in the 10000 range)
-Search: /?q=dell+desktop&loc=Kenmore&m=all   (m: all|offerup|facebook)
+Search: /search?q=dell+desktop&loc=Kenmore&m=all   (m: all|offerup|facebook)
+Advanced: the "Advanced" form on /search creates a Bargain Search directly.
+Enhanced view: /search?id=N
 Chat: /chat  (no id resumes the latest session; /chat?id=N opens one)
 """
 
@@ -112,7 +114,7 @@ def _search_all(
 
 
 def _page_link(page: int, query: str, location: str, market: str) -> str:
-    return f"/?q={quote(query)}&loc={quote(location)}&m={market}&page={page}"
+    return f"/search?q={quote(query)}&loc={quote(location)}&m={market}&page={page}"
 
 
 def _render_pagination(page: int, total_pages: int, query: str, location: str, market: str) -> str:
@@ -174,13 +176,41 @@ def _render_rows(result: SearchResult) -> str:
     return "\n".join(rows) if rows else '<li class="card">No listings found.</li>'
 
 
+def _render_advanced(values: dict, hidden: bool = True) -> str:
+    """Bargain Search authoring form, hidden until the Advanced toggle is on."""
+    esc = html.escape
+
+    def v(key: str, default: str = "") -> str:
+        val = values.get(key) or default
+        return str(val)
+
+    hidden_attr = " hidden" if hidden else ""
+    return (
+        f'<div id="advanced"{hidden_attr}>'
+        '<form class="confirm" method="post" action="/search">'
+        f'<label>Summary<input type="text" name="summary" value="{esc(v("summary"))}"></label>'
+        f'<label>Product identity<input type="text" name="product_identity" value="{esc(v("product_identity"))}"></label>'
+        f'<label>Queries (one per line)<textarea name="queries" rows="5">{esc(v("queries"))}</textarea></label>'
+        f'<label>Exclusions (one per line)<textarea name="exclusions" rows="3">{esc(v("exclusions"))}</textarea></label>'
+        f'<label>Target price (optional, e.g. 150)<input type="text" name="target_price" value="{esc(v("target_price"))}"></label>'
+        f'<label>Location<input type="text" name="location" value="{esc(v("location", "Kenmore, WA"))}" placeholder="City, State"></label>'
+        '<button type="submit">Create Bargain Search</button>'
+        "</form>"
+        "</div>"
+    )
+
+
 def render_page(
-    query: str,
-    result: SearchResult,
+    query: str = "",
+    result: SearchResult | None = None,
     location: str = "",
     banner: str = "",
     source: str = "offerup",
+    advanced: dict | None = None,
+    advanced_open: bool = False,
 ) -> str:
+    if result is None:
+        result = SearchResult()
     options = "".join(
         f'<option value="{m}"{" selected" if m == source else ""}>{label}</option>'
         for m, label in (("all", "All marketplaces"), ("offerup", "OfferUp"), ("facebook", "Facebook"))
@@ -196,6 +226,7 @@ def render_page(
         market_select=f'<select name="m">{options}</select>',
         rows=_render_rows(result),
         pagination=_render_pagination(result.page, result.total_pages, query, location, source),
+        advanced=_render_advanced(advanced or {}, hidden=not advanced_open),
     )
 
 
@@ -295,7 +326,11 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_chat_get(parsed)
             return
         if parsed.path == "/search":
-            self._handle_enhanced_get(parsed)
+            sid = (parse_qs(parsed.query).get("id") or [""])[0]
+            if sid:
+                self._handle_enhanced_get(parsed)
+            else:
+                self._handle_raw_search(parsed)
             return
         if parsed.path == "/liveness":
             self._handle_liveness_get(parsed)
@@ -303,10 +338,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/index.html", "/searches"):
             self._handle_searches_get()
             return
-        if parsed.path != "/raw":
-            self._send(404, "Not found")
-            return
+        self._send(404, "Not found")
 
+    def _handle_raw_search(self, parsed) -> None:
+        """Raw keyword search: query/location/marketplace with pagination."""
         qs = parse_qs(parsed.query)
         query = (qs.get("q") or [""])[0].strip()
         if not query:
@@ -357,10 +392,51 @@ class Handler(BaseHTTPRequestHandler):
         self.cache.put(key, result)
         self._send(200, render_page(query, result, location, banner=banner, source=market))
 
+    def _handle_search_post(self) -> None:
+        """Advanced Bargain Search: create the search, then open its enhanced view."""
+        form = self._read_form()
+        if not (form.get("summary") or [""])[0].strip():
+            # An omitted summary stands in as the product identity, pre-validation.
+            form = dict(form, summary=[(form.get("product_identity") or [""])[0]])
+        try:
+            draft = chat_mod.draft_from_form(form)
+        except chat_mod.DraftError as exc:
+            # Re-render the form with whatever was submitted, flagged.
+            values = {
+                k: (form.get(k) or [""])[0]
+                for k in (
+                    "summary",
+                    "product_identity",
+                    "queries",
+                    "exclusions",
+                    "target_price",
+                    "location",
+                )
+            }
+            self._send(200, render_page(advanced=values, advanced_open=True, banner=str(exc)))
+            return
+        conn = get_connection()
+        try:
+            new_id = chat_mod.create_search(conn, draft)
+        finally:
+            conn.close()
+        self.send_response(303)
+        self.send_header("Location", f"/search?id={new_id}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        # Fan-out starts after the redirect is on the wire, not before.
+        threading.Thread(
+            target=fan_out,
+            args=(self.fanout_marketplaces, new_id, draft["location"]),
+            daemon=True,
+        ).start()
+
     def do_POST(self) -> None:  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
         if parsed.path == "/chat":
             self._handle_chat_post()
+        elif parsed.path == "/search":
+            self._handle_search_post()
         elif parsed.path == "/confirm":
             self._handle_confirm_post()
         elif parsed.path == "/reject":
@@ -672,7 +748,7 @@ def main() -> None:
     ).start()
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"BoldTrader serving on http://{args.host}:{args.port}/?q=HP+Z440&loc=Kenmore%2C+WA&m={args.market}")
+    print(f"BoldTrader serving on http://{args.host}:{args.port}/search?q=HP+Z440&loc=Kenmore%2C+WA&m={args.market}")
     server.serve_forever()
 
 

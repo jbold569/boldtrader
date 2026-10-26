@@ -27,6 +27,21 @@
   });
 })();
 
+// Advanced toggle: shows/hides the Bargain Search form on /search.
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var btn = document.getElementById('advanced-toggle');
+    var panel = document.getElementById('advanced');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function () {
+      var show = panel.hasAttribute('hidden');
+      if (show) panel.removeAttribute('hidden');
+      else panel.setAttribute('hidden', '');
+      btn.setAttribute('aria-expanded', String(show));
+    });
+  });
+})();
+
 // Description dialog: "Edit description" buttons open the shared <dialog>
 // pre-filled with the listing's current authored text.
 (function () {

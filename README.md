@@ -13,7 +13,7 @@ python -m venv .venv
 .venv/bin/python -m src.server [--port 8000]
 ```
 
-- Search UI: `http://localhost:8000/?q=dell+desktop&loc=Kenmore&m=all` (`m`: `all|offerup|facebook`)
+- Search UI: `http://localhost:8000/search?q=dell+desktop&loc=Kenmore&m=all` (`m`: `all|offerup|facebook`); the Advanced form on that page creates a Bargain Search directly
 - Chat: `http://localhost:8000/chat` (resumes the latest session; `/chat?id=N` opens a specific one)
 
 State lives in `boldtrader.db` (SQLite, git-ignored). Local-only model inference; see `docs/adr/0006`.
