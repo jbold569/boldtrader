@@ -3,7 +3,8 @@
 // and actions. Phone: filter/sort controls sit above (shared FilterBar); the
 // table keeps a horizontal scroll strip. The thumbnail column is frozen
 // (sticky) so the photo stays as the row's visual anchor while scrolling
-// horizontally.
+// horizontally, and the expanded detail panel is likewise locked to the
+// viewport so it doesn't drift out of view.
 
 import { useState } from "react";
 import { money, pct, postedLabel } from "./data";
@@ -72,44 +73,50 @@ function Row({ r }: { r: ResultListing }) {
       {open && (
         <tr className="cd-expand">
           <td colSpan={10}>
-            {r.enrichment ? (
-              <div className="cd-enrich">
-                <p>
-                  <b>{r.enrichment.product}</b>{" "}
-                  <span className="conf-track">
-                    <span
-                      className="conf-fill"
-                      style={{
-                        width: `${r.enrichment.confidence * 100}%`,
-                        background: confidenceColor(r.enrichment.confidence),
-                      }}
-                    />
-                  </span>{" "}
-                  {r.enrichment.confidence >= 0.8
-                    ? "high confidence"
-                    : r.enrichment.confidence >= 0.6
-                      ? "medium confidence"
-                      : "low confidence"}
+            <div className="cd-expand-inner">
+              <h3 className="cd-title-link">
+                <a href={r.url}>{r.title}</a>
+              </h3>
+              {r.enrichment ? (
+                <div className="cd-enrich">
+                  <p>
+                    <b>{r.enrichment.product}</b>{" "}
+                    <span className="conf-track">
+                      <span
+                        className="conf-fill"
+                        style={{
+                          width: `${r.enrichment.confidence * 100}%`,
+                          background: confidenceColor(
+                            r.enrichment.confidence
+                          ),
+                        }}
+                      />
+                    </span>{" "}
+                    {r.enrichment.confidence >= 0.8
+                      ? "high confidence"
+                      : r.enrichment.confidence >= 0.6
+                        ? "medium confidence"
+                        : "low confidence"}
+                  </p>
+                  {r.enrichment.bundle.length > 0 && (
+                    <p>Bundle: {r.enrichment.bundle.join(", ")}</p>
+                  )}
+                  <p>
+                    Flip value {money(r.flip_value)} → effective{" "}
+                    {money(r.effective_price)} vs fair{" "}
+                    {r.fair_price ? money(r.fair_price) : "n/a"}
+                  </p>
+                </div>
+              ) : (
+                <p className="muted">
+                  Enrichment missing. Re-enrich to resolve this listing.
                 </p>
-                {r.enrichment.bundle.length > 0 && (
-                  <p>Bundle: {r.enrichment.bundle.join(", ")}</p>
-                )}
-                <p>
-                  Flip value {money(r.flip_value)} → effective{" "}
-                  {money(r.effective_price)} vs fair{" "}
-                  {r.fair_price ? money(r.fair_price) : "n/a"}
-                </p>
+              )}
+              <div className="cd-actions">
+                <button className="tl-primary">Author description</button>
+                <button>Re-enrich</button>
+                <button className="tl-reject">Reject</button>
               </div>
-            ) : (
-              <p className="muted">
-                Enrichment missing. Re-enrich to resolve this listing.
-              </p>
-            )}
-            <div className="cd-actions">
-              <button className="tl-primary">Author description</button>
-              <button>Re-enrich</button>
-              <button className="tl-reject">Reject</button>
-              <a href={r.url}>Open listing ↗</a>
             </div>
           </td>
         </tr>

@@ -230,8 +230,27 @@
   font-weight: 700;
 }
 .cd-expand td {
-  background: var(--surface-2);
+  padding: 0;
+}
+/* Lock the detail panel to the viewport: as the ledger scrolls
+   horizontally, the expanded content stays visible instead of sliding
+   away. Width matches the visible scroll window (viewport minus page
+   padding); clipped to the card by the wrapper's overflow:hidden. */
+.cd-expand-inner {
+  position: sticky;
+  left: 0;
+  width: calc(100vw - 28px);
   padding: 12px 16px;
+  background: var(--surface-2);
+}
+.cd-title-link {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.cd-title-link a {
+  color: var(--accent);
+  text-decoration: none;
 }
 .cd-enrich p {
   margin-bottom: 4px;
