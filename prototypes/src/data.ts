@@ -30,7 +30,8 @@ export interface ResultListing {
   fair_price: number | null;
   flip_value: number;
   effective_price: number;
-  posted: string;
+  availability: "live" | "dead";
+  posted_minutes: number;
 }
 
 export const SEARCH = {
@@ -59,7 +60,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 610,
     flip_value: 0,
     effective_price: 459.99,
-    posted: "2h ago",
+    availability: "live",
+    posted_minutes: 120,
   },
   {
     id: "l-002",
@@ -80,7 +82,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: null,
     flip_value: 940,
     effective_price: 510,
-    posted: "5h ago",
+    availability: "live",
+    posted_minutes: 300,
   },
   {
     id: "l-003",
@@ -101,7 +104,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 380,
     flip_value: 0,
     effective_price: 220,
-    posted: "1d ago",
+    availability: "dead",
+    posted_minutes: 1440,
   },
   {
     id: "l-004",
@@ -122,11 +126,12 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 430,
     flip_value: 0,
     effective_price: 324.5,
-    posted: "3h ago",
+    availability: "live",
+    posted_minutes: 180,
   },
   {
     id: "l-005",
-    title: "Apple MacBook Air 13-inch 2017 i5 8GB - LOGIC BOARD DEAD FOR PARTS",
+    title: "MacBook Air 13-inch 2017 i5 8GB - LOGIC BOARD DEAD FOR PARTS",
     url: "https://ebay.example/itm/1111999222",
     marketplace: "eBay",
     image_url: null,
@@ -143,7 +148,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: null,
     flip_value: 120,
     effective_price: -13,
-    posted: "6d ago",
+    availability: "dead",
+    posted_minutes: 8640,
   },
   {
     id: "l-006",
@@ -164,7 +170,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 665,
     flip_value: 0,
     effective_price: 549,
-    posted: "18h ago",
+    availability: "live",
+    posted_minutes: 1080,
   },
   {
     id: "l-007",
@@ -185,7 +192,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 690,
     flip_value: 0,
     effective_price: 725,
-    posted: "4h ago",
+    availability: "live",
+    posted_minutes: 240,
   },
   {
     id: "l-008",
@@ -201,7 +209,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 610,
     flip_value: 0,
     effective_price: 180,
-    posted: "30m ago",
+    availability: "live",
+    posted_minutes: 30,
   },
   {
     id: "l-009",
@@ -222,7 +231,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: null,
     flip_value: 0,
     effective_price: 60,
-    posted: "2d ago",
+    availability: "dead",
+    posted_minutes: 2880,
   },
   {
     id: "l-010",
@@ -243,7 +253,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 610,
     flip_value: 210,
     effective_price: 598,
-    posted: "8h ago",
+    availability: "live",
+    posted_minutes: 480,
   },
   {
     id: "l-011",
@@ -264,7 +275,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: null,
     flip_value: 0,
     effective_price: 799,
-    posted: "1d ago",
+    availability: "dead",
+    posted_minutes: 1440,
   },
   {
     id: "l-012",
@@ -285,7 +297,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: 300,
     flip_value: 180,
     effective_price: -18,
-    posted: "45m ago",
+    availability: "live",
+    posted_minutes: 45,
   },
   {
     id: "l-013",
@@ -301,7 +314,8 @@ export const LISTINGS: ResultListing[] = [
     fair_price: null,
     flip_value: 0,
     effective_price: 270,
-    posted: "just now",
+    availability: "live",
+    posted_minutes: 0,
   },
 ];
 
@@ -310,3 +324,10 @@ export const money = (n: number) =>
 
 export const pct = (effective: number, fair: number) =>
   Math.round((1 - effective / fair) * 100);
+
+export function postedLabel(minutes: number): string {
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / 1440)}d ago`;
+}

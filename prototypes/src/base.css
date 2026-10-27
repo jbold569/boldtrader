@@ -1,4 +1,4 @@
-/* Token ramp shared by all variants. Light/dark flips via [data-theme] on <html>.
+/* Token ramp shared by all views. Light/dark flips via [data-theme] on <html>.
    This is the seed of the "visual language tokens" fog item on map #14. */
 
 :root,
@@ -37,7 +37,7 @@
   --bad: #f87171;
   --bad-bg: #2b1516;
   --neutral-bg: #262a31;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -106,4 +106,24 @@ button:active {
   display: block;
   height: 100%;
   border-radius: 99px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 14px 96px;
+}
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  font-size: 13px;
+  margin: -14px -14px 14px;
 }

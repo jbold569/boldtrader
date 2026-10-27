@@ -1,53 +1,15 @@
-import { useEffect } from "react";
+// Floating bottom-center pill: switches tile/condensed, flips theme.
+// Deliberately loud so it reads as prototype scaffolding, not page design.
+
+import { patchUrl } from "./filters";
 import { useTheme } from "./theme";
 
-const VARIANTS: Record<string, string> = {
-  A: "Verdict-first column",
-  B: "Photo grid",
-  C: "Dense ledger",
-};
-const KEYS = ["A", "B", "C"];
-
-// Floating bottom-center pill: cycles variants, flips theme. Deliberately loud
-// so it reads as prototype scaffolding, not page design.
 export default function Switcher() {
   const theme = useTheme();
-  const current =
-    new URLSearchParams(window.location.search).get("variant") ?? "A";
-
-  const go = (key: string) => {
-    const p = new URLSearchParams(window.location.search);
-    p.set("variant", key);
-    window.history.replaceState(null, "", `?${p.toString()}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
-  const flipTheme = () => {
-    const p = new URLSearchParams(window.location.search);
-    p.set("theme", theme === "dark" ? "light" : "dark");
-    window.history.replaceState(null, "", `?${p.toString()}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (
-        t.tagName === "INPUT" ||
-        t.tagName === "TEXTAREA" ||
-        t.isContentEditable
-      )
-        return;
-      const i = KEYS.indexOf(
-        new URLSearchParams(window.location.search).get("variant") ?? "A"
-      );
-      if (e.key === "ArrowRight") go(KEYS[(i + 1) % KEYS.length]);
-      if (e.key === "ArrowLeft")
-        go(KEYS[(i - 1 + KEYS.length) % KEYS.length]);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  const view =
+    new URLSearchParams(window.location.search).get("view") === "condensed"
+      ? "condensed"
+      : "tile";
 
   return (
     <div
@@ -68,13 +30,19 @@ export default function Switcher() {
         fontSize: 13,
       }}
     >
-      <button onClick={() => go("A")}>A</button>
-      <button onClick={() => go("B")}>B</button>
-      <button onClick={() => go("C")}>C</button>
-      <span>
-        {current} — {VARIANTS[current]}
-      </span>
-      <button onClick={flipTheme}>
+      <button
+        onClick={() => patchUrl({ view: "tile" })}
+        aria-pressed={view === "tile"}
+      >
+        ▦ Tile
+      </button>
+      <button
+        onClick={() => patchUrl({ view: "condensed" })}
+        aria-pressed={view === "condensed"}
+      >
+        ☰ Condensed
+      </button>
+      <button onClick={() => patchUrl({ theme: theme === "dark" ? "light" : "dark" })}>
         {theme === "dark" ? "☀ light" : "☾ dark"}
       </button>
     </div>
