@@ -1,7 +1,7 @@
-// Throwaway prototype for wayfinder #34 — Bargain Search results look-and-feel.
-// Two views of one query: `?view=tile` (verdict-first cards) and
-// `?view=condensed` (dense ledger), sharing one FilterBar and a light/dark
-// token ramp (`?theme=light|dark`). Fake data inline; no backend calls.
+// Shared throwaway prototype app.
+//   #34 results look-and-feel: `?view=tile|condensed`
+//   #32 side-tray navigation:  `?nav=a|b|c`
+// Light/dark everywhere via `?theme=light|dark`. Fake data inline; no backend.
 
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -12,6 +12,7 @@ import FilterBar from "./FilterBar";
 import TileView from "./TileView";
 import CondensedView from "./CondensedView";
 import Switcher from "./Switcher";
+import { TrayA, TrayB, TrayC } from "./trays";
 import "./base.css";
 
 function useQuery() {
@@ -26,30 +27,51 @@ function useQuery() {
   return params;
 }
 
-function App() {
+// The page content under test: a results page stands in for "whatever page you
+// are on", since the tray is global chrome seen from every route.
+function ResultsPage() {
   const q = useQuery();
   const view = q.get("view") === "condensed" ? "condensed" : "tile";
+  const results = applyFilters(LISTINGS, parseFilters(q));
+  return (
+    <>
+      <div className="banner">
+        Sifting {SEARCH.live.sifted}/{SEARCH.live.total} ·{" "}
+        <strong>{SEARCH.live.new_deals} new deals</strong> since you last looked
+      </div>
+      <FilterBar count={results.length} />
+      {view === "tile" ? (
+        <TileView listings={results} />
+      ) : (
+        <CondensedView listings={results} />
+      )}
+    </>
+  );
+}
+
+function App() {
+  const q = useQuery();
   const theme: Theme = q.get("theme") === "dark" ? "dark" : "light";
+  const nav = (q.get("nav") ?? "a").toLowerCase();
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  const results = applyFilters(LISTINGS, parseFilters(q));
+  const page = (
+    <div className="page">
+      <ResultsPage />
+    </div>
+  );
 
   return (
     <ThemeContext.Provider value={theme}>
-      <div className="page">
-        <div className="banner">
-          Sifting {SEARCH.live.sifted}/{SEARCH.live.total} ·{" "}
-          <strong>{SEARCH.live.new_deals} new deals</strong> since you last looked
-        </div>
-        <FilterBar count={results.length} />
-        {view === "tile" ? (
-          <TileView listings={results} />
-        ) : (
-          <CondensedView listings={results} />
-        )}
-      </div>
+      {nav === "b" ? (
+        <TrayB>{page}</TrayB>
+      ) : nav === "c" ? (
+        <TrayC>{page}</TrayC>
+      ) : (
+        <TrayA>{page}</TrayA>
+      )}
       <Switcher />
     </ThemeContext.Provider>
   );
