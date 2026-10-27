@@ -21,8 +21,8 @@ import "./trays.css";
 
 const NAV = [
   { key: "chat", icon: "💬", label: "Chat", badge: 1 },
-  { key: "searches", icon: "🔎", label: "Searches", badge: 2 },
-  { key: "find", icon: "🎯", label: "Find", badge: 0 },
+  { key: "bargains", icon: "💰", label: "Bargains", badge: 2 },
+  { key: "search", icon: "🔍", label: "Search", badge: 0 },
 ];
 
 const SESSIONS = [
@@ -74,7 +74,7 @@ function TrayBody({ onPick }: { onPick: () => void }) {
           </a>
         ))}
       </nav>
-      <h2>Recent Chat Sessions</h2>
+      <h2>Chat Sessions</h2>
       <ul className="tray-sessions">
         {SESSIONS.map((s) => (
           <li key={s.id}>
