@@ -1,6 +1,7 @@
 // Shared throwaway prototype app.
 //   #34 results look-and-feel: `?view=tile|condensed`
 //   #32 side-tray navigation:  `?nav=a|b|c`
+//   #33 search forms:          `?page=search&form=a|b|c`
 // Light/dark everywhere via `?theme=light|dark`. Fake data inline; no backend.
 
 import { useEffect, useState } from "react";
@@ -13,6 +14,7 @@ import TileView from "./TileView";
 import CondensedView from "./CondensedView";
 import Switcher from "./Switcher";
 import { TrayA, TrayB, TrayC } from "./trays";
+import SearchPage from "./search";
 import "./base.css";
 
 function useQuery() {
@@ -57,9 +59,16 @@ function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  const isSearch = q.get("page") === "search";
   const page = (
     <div className="page">
-      <ResultsPage />
+      {isSearch ? (
+        <SearchPage
+          variant={(q.get("form") ?? "a").toLowerCase() as "a" | "b" | "c"}
+        />
+      ) : (
+        <ResultsPage />
+      )}
     </div>
   );
 

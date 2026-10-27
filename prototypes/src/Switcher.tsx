@@ -1,6 +1,6 @@
-// Floating bottom-center pill: switches nav tray variant (A/B/C), results
-// view (tile/condensed), and theme. Deliberately loud so it reads as
-// prototype scaffolding, not page design.
+// Floating bottom-center pill: switches nav tray variant (A/B/C), page
+// (results / search forms + form variant A/B/C), and theme. Deliberately
+// loud so it reads as prototype scaffolding, not page design.
 
 import { patchUrl } from "./filters";
 import { useTheme } from "./theme";
@@ -11,12 +11,21 @@ const NAVS = [
   { k: "c", label: "C Visible" },
 ];
 
+const FORMS = [
+  { k: "a", label: "A Classic" },
+  { k: "b", label: "B Chips" },
+  { k: "c", label: "C Wizard" },
+];
+
 export default function Switcher() {
   const theme = useTheme();
   const q = new URLSearchParams(window.location.search);
   const view = q.get("view") === "condensed" ? "condensed" : "tile";
   const nav = (q.get("nav") ?? "a").toLowerCase();
   const idx = Math.max(0, NAVS.findIndex((n) => n.k === nav));
+  const isSearch = q.get("page") === "search";
+  const form = (q.get("form") ?? "a").toLowerCase();
+  const fidx = Math.max(0, FORMS.findIndex((f) => f.k === form));
 
   return (
     <div
@@ -46,7 +55,7 @@ export default function Switcher() {
       >
         ◀
       </button>
-      <span style={{ fontWeight: 700 }}>{NAVS[idx].label}</span>
+      <span style={{ fontWeight: 700 }}>🧭 {NAVS[idx].label}</span>
       <button
         aria-label="Next nav variant"
         onClick={() => patchUrl({ nav: NAVS[(idx + 1) % NAVS.length].k })}
@@ -54,18 +63,46 @@ export default function Switcher() {
         ▶
       </button>
       <span style={{ opacity: 0.4 }}>|</span>
-      <button
-        onClick={() => patchUrl({ view: "tile" })}
-        aria-pressed={view === "tile"}
-      >
-        ▦ Tile
-      </button>
-      <button
-        onClick={() => patchUrl({ view: "condensed" })}
-        aria-pressed={view === "condensed"}
-      >
-        ☰ Condensed
-      </button>
+      {isSearch ? (
+        <>
+          <button
+            aria-label="Previous form variant"
+            onClick={() =>
+              patchUrl({ form: FORMS[(fidx - 1 + FORMS.length) % FORMS.length].k })
+            }
+          >
+            ◀
+          </button>
+          <span style={{ fontWeight: 700 }}>🔍 {FORMS[fidx].label}</span>
+          <button
+            aria-label="Next form variant"
+            onClick={() => patchUrl({ form: FORMS[(fidx + 1) % FORMS.length].k })}
+          >
+            ▶
+          </button>
+          <button onClick={() => patchUrl({ page: "results", form: null })}>
+            ≣ Results
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            onClick={() => patchUrl({ view: "tile" })}
+            aria-pressed={view === "tile"}
+          >
+            ▦ Tile
+          </button>
+          <button
+            onClick={() => patchUrl({ view: "condensed" })}
+            aria-pressed={view === "condensed"}
+          >
+            ☰ Condensed
+          </button>
+          <button onClick={() => patchUrl({ page: "search", form: "a" })}>
+            🔍 Search forms
+          </button>
+        </>
+      )}
       <span style={{ opacity: 0.4 }}>|</span>
       <button onClick={() => patchUrl({ theme: theme === "dark" ? "light" : "dark" })}>
         {theme === "dark" ? "☀ light" : "☾ dark"}
