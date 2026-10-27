@@ -1,0 +1,109 @@
+/* Token ramp shared by all variants. Light/dark flips via [data-theme] on <html>.
+   This is the seed of the "visual language tokens" fog item on map #14. */
+
+:root,
+[data-theme="light"] {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #dfe3ea;
+  --border-strong: #c4cad6;
+  --fg: #1a1d23;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --ok: #15803d;
+  --ok-bg: #e7f6ec;
+  --warn: #b45309;
+  --warn-bg: #fdf3e3;
+  --bad: #b91c1c;
+  --bad-bg: #fdeaea;
+  --neutral-bg: #eceef1;
+  --shadow: 0 1px 3px rgba(20, 24, 32, 0.12);
+}
+
+[data-theme="dark"] {
+  --bg: #101216;
+  --surface: #1a1d23;
+  --surface-2: #23272f;
+  --border: #2e333c;
+  --border-strong: #444b57;
+  --fg: #e6e8ec;
+  --muted: #98a0ad;
+  --accent: #60a5fa;
+  --ok: #4ade80;
+  --ok-bg: #12291c;
+  --warn: #fbbf24;
+  --warn-bg: #2b2312;
+  --bad: #f87171;
+  --bad-bg: #2b1516;
+  --neutral-bg: #262a31;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+button:active {
+  transform: translateY(1px);
+}
+
+.chip {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--neutral-bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip.ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: transparent;
+}
+.chip.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+.chip.bad {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-color: transparent;
+}
+
+.conf-track {
+  display: inline-block;
+  width: 64px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  vertical-align: middle;
+  overflow: hidden;
+}
+.conf-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+}
