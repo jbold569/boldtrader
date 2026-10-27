@@ -1,7 +1,9 @@
 // Condensed view — dense ledger table (the look from variant C): every
 // deal-math column visible at once, tap a row to expand the full Enrichment
 // and actions. Phone: filter/sort controls sit above (shared FilterBar); the
-// table keeps a horizontal scroll strip.
+// table keeps a horizontal scroll strip. The thumbnail column is frozen
+// (sticky) so the photo stays as the row's visual anchor while scrolling
+// horizontally.
 
 import { useState } from "react";
 import { money, pct, postedLabel } from "./data";
@@ -127,7 +129,7 @@ export default function CondensedView({
         <table className="cd-table">
           <thead>
             <tr>
-              <th></th>
+              <th className="cd-photo"></th>
               <th>Verdict</th>
               <th>Listing</th>
               <th>Effective</th>

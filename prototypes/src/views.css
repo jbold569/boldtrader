@@ -148,7 +148,8 @@
 }
 .cd-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -176,6 +177,23 @@
 }
 .cd-dead {
   opacity: 0.55;
+}
+/* Frozen thumbnail column: stays anchored while the row scrolls horizontally,
+   so the photo stays as the row's visual anchor. Separate borders (not
+   collapsed) so the sticky cell keeps its own edge line. */
+.cd-photo {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  width: 60px;
+}
+.cd-table th.cd-photo {
+  background: var(--surface-2);
+}
+.cd-row:hover .cd-photo {
+  background: var(--surface-2);
 }
 .cd-photo img {
   width: 40px;
