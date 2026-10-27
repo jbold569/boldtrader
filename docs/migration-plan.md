@@ -32,7 +32,7 @@ Implement `/api/v1/` in full per `docs/api-contract.md`: searches CRUD, results 
 
 ### M3 — Prototypes (HITL, map tickets)
 
-Work [Chat page UX prototype](https://github.com/jbold569/boldtrader/issues/21) and [Enhanced view interaction prototype](https://github.com/jbold569/boldtrader/issues/22) before the pages they inform. They settle look-and-feel and the `reasoning`-channel surface-vs-suppress policy that #20 deferred. Throwaway artifacts; nothing here is production code.
+Work all five HITL prototype tickets before the pages they inform: [Chat page UX (#21)](https://github.com/jbold569/boldtrader/issues/21), [Enhanced view interaction (#22)](https://github.com/jbold569/boldtrader/issues/22), [Side-tray navigation (#32)](https://github.com/jbold569/boldtrader/issues/32), [Search / advanced search form (#33)](https://github.com/jbold569/boldtrader/issues/33), and [Search result view look-and-feel (#34)](https://github.com/jbold569/boldtrader/issues/34). They settle look-and-feel and the `reasoning`-channel surface-vs-suppress policy that #20 deferred. They run in the shared Vite app at `prototypes/` on port 10050, fake data inline, no backend. All five are gated by the firewall task [Open LAN ports 10000-10099 (#31)](https://github.com/jbold569/boldtrader/issues/31) — do that first. Throwaway artifacts; nothing here is production code.
 
 ### M4 — Searches list (`/searches`)
 
