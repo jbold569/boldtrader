@@ -1,8 +1,9 @@
 // Tile view — verdict-first cards (the look from variant A), in a responsive
 // tile grid. Every tile: verdict + effective-vs-fair math as the headline,
-// photo thumb, Enrichment tinted section, per-card actions at the foot.
+// photo thumb, Enrichment tinted section, actions at the foot.
 // Dead listings are visibly dimmed. Filtering/sorting lives in the shared
 // FilterBar above; this view only renders what it's given.
+// The title is the listing hyperlink — no separate "Open listing" action.
 
 import { money, pct, postedLabel, type ResultListing } from "./data";
 import { VERDICT_LABEL, confidenceColor } from "./theme";
@@ -70,7 +71,9 @@ export default function TileView({
                 {r.shipping > 0 && ` + ${money(r.shipping)} ship`}
               </div>
             </div>
-            <h3 className="tl-title">{r.title}</h3>
+            <h3 className="tl-title">
+              <a href={r.url}>{r.title}</a>
+            </h3>
             <div className="tl-meta">
               <span className="chip">{r.marketplace}</span>
               <span className="chip">{postedLabel(r.posted_minutes)}</span>
@@ -114,9 +117,6 @@ export default function TileView({
               <button className="tl-primary">Author description</button>
               <button>Re-enrich</button>
               <button className="tl-reject">Reject</button>
-              <a className="tl-open" href={r.url}>
-                Open listing ↗
-              </a>
             </div>
           </article>
         );
