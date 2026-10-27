@@ -135,7 +135,9 @@ export function TrayA({ children }: { children: ReactNode }) {
 
   function start(e: PointerEvent) {
     if ((e.target as HTMLElement).closest("button,a,input")) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    try {
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    } catch {}
     panel.current?.classList.add("dragging");
     drag.current = { x0: e.clientX, p0: open ? 0 : -DRAWER_W };
   }
@@ -228,7 +230,10 @@ export function TrayB({ children }: { children: ReactNode }) {
   }, [open]);
 
   function start(e: PointerEvent) {
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    if ((e.target as HTMLElement).closest("button,a,input")) return;
+    try {
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    } catch {}
     const h = panel.current?.offsetHeight ?? 400;
     drag.current = { y0: e.clientY, p0: open ? 0 : h - PEEK_H, moved: 0 };
   }
