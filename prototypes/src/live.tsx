@@ -81,7 +81,6 @@ export default function LivePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [arrivals, setArrivals] = useState(0);
-  const [livenessBanner, setLivenessBanner] = useState("");
   const [lastEvent, setLastEvent] = useState("");
   const fetchedFor = useRef(
     JSON.stringify(
@@ -189,7 +188,6 @@ export default function LivePage() {
           return next;
         });
       }
-      if (ev.data.banner) setLivenessBanner(ev.data.banner);
       setLastEvent(`liveness: ${ev.data.dead_count} ended, done=${ev.data.done}`);
     } else if (ev.event === "search_complete") {
       setArrivals((a) => a + 1);
@@ -252,9 +250,6 @@ export default function LivePage() {
           <button className="lv-arrivals" onClick={showArrivals}>
             ▲ {arrivals} new listing{arrivals > 1 ? "s" : ""} — tap to add to top
           </button>
-        )}
-        {livenessBanner && (
-          <div className="lv-liveness">{livenessBanner}</div>
         )}
       </div>
 
@@ -381,7 +376,6 @@ export default function LivePage() {
               resetWorld(),
               setItems(LISTINGS.slice(0, 8)),
               setArrivals(0),
-              setLivenessBanner(""),
               setError(null),
               setReqLog([]),
               (reqCount.current = 0),
