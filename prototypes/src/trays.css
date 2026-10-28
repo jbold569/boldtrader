@@ -11,10 +11,32 @@
   color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 10px 14px;
+  padding: 12px 14px;
   font-size: 15px;
   font-weight: 600;
+  width: 100%;
   margin-bottom: 10px;
+}
+.tray-pair {
+  display: flex;
+  gap: 10px;
+}
+.tray-half {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.tray-half:hover {
+  background: var(--surface-2);
 }
 .tray-nav {
   display: flex;
@@ -224,10 +246,6 @@
   height: 4px;
   border-radius: 99px;
   background: var(--border-strong);
-}
-.grip-label {
-  font-size: 13px;
-  color: var(--muted);
 }
 
 /* ---- C: persistent sidebar + phone tab bar ---- */

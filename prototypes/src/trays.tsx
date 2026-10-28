@@ -18,6 +18,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { patchUrl } from "./filters";
 import "./trays.css";
 
 const NAV = [
@@ -37,31 +38,27 @@ const SESSIONS = [
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
 
-// The payload every hidden-nav variant carries: primary action, the three
-// top-level destinations, recent Chat Sessions.
-function TrayBody({ onPick }: { onPick: () => void }) {
+// The payload the pull-up tray carries: primary New Chat across the full width,
+// Bargains + Search as two side-by-side buttons below it, then recent Chat
+// Sessions. "View all" routes to the Chat Sessions page. (User verdict, #22
+// session: no menu icon on the grip; no Chat item in the nav — the sessions
+// list below covers it.)
+function TrayBody({ onPick }: { onPick: (dest?: string) => void }) {
   return (
     <div className="tray-body">
-      <button className="tray-newchat" onClick={onPick}>
+      <button className="tray-newchat" onClick={() => onPick("newchat")}>
         ＋ New Chat
       </button>
-      <nav className="tray-nav">
-        {NAV.map((it) => (
-          <a
-            key={it.key}
-            href="#"
-            className="tray-link"
-            onClick={(e) => {
-              e.preventDefault();
-              onPick();
-            }}
-          >
-            <span>{it.icon}</span>
-            <span>{it.label}</span>
-            {it.badge > 0 && <span className="chip ok tray-badge">{it.badge}</span>}
-          </a>
-        ))}
-      </nav>
+      <div className="tray-pair">
+        <button className="tray-half" onClick={() => onPick("bargains")}>
+          💰 Bargains
+          {/* badge kept: unread deal count rides the button */}
+          <span className="chip ok tray-badge">2</span>
+        </button>
+        <button className="tray-half" onClick={() => onPick("search")}>
+          🔍 Search
+        </button>
+      </div>
       <h2>Chat Sessions</h2>
       <ul className="tray-sessions">
         {SESSIONS.map((s) => (
@@ -70,7 +67,7 @@ function TrayBody({ onPick }: { onPick: () => void }) {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                onPick();
+                onPick("chat");
               }}
             >
               {s.unread && <span className="dot" />}
@@ -85,6 +82,7 @@ function TrayBody({ onPick }: { onPick: () => void }) {
             href="#"
             onClick={(e) => {
               e.preventDefault();
+              patchUrl({ page: "chat" });
               onPick();
             }}
           >
@@ -269,10 +267,9 @@ export function TrayB({ children }: { children: ReactNode }) {
           onPointerMove={move}
           onPointerUp={end}
           onClick={gripClick}
-          aria-label="Open menu"
+          aria-label="Pull up navigation tray"
         >
           <span className="grip-pill" />
-          <span className="grip-label">☰ Menu</span>
         </div>
         <TrayBody onPick={() => setOpen(false)} />
       </div>
