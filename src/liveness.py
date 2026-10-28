@@ -20,6 +20,7 @@ import json
 import logging
 import threading
 
+from . import events
 from .db import get_connection
 
 log = logging.getLogger(__name__)
@@ -229,9 +230,13 @@ def _sweep(search_id: int) -> None:
 
 
 def _mark_done(search_id: int, banner: str) -> None:
+    dead = _dead_ids(search_id)
     with _lock:
-        _active[search_id] = {"done": True, "banner": banner,
-                             "dead": _dead_ids(search_id)}
+        _active[search_id] = {"done": True, "banner": banner, "dead": dead}
+    events.publish(
+        "liveness",
+        {"search_id": search_id, "done": True, "dead_count": len(dead), "banner": banner},
+    )
 
 
 def _dead_ids(search_id: int) -> list[str]:

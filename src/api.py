@@ -17,7 +17,7 @@ import threading
 from urllib.parse import parse_qs, urlparse
 
 from . import chat as chat_mod
-from . import enhanced, liveness
+from . import enhanced, events, liveness
 from .db import get_connection
 from .fanout import fan_out, reenrich_search
 
@@ -445,6 +445,11 @@ def handle(handler) -> None:
     parts = [p for p in parsed.path.split("/") if p]
     try:
         if parts[:2] != ["api", "v1"]:
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["events"]:
+            if handler.command == "GET":
+                events.serve(handler)
+                return
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
         if parts[2:3] != ["searches"]:
             raise ApiError(404, "not_found", f"No route for {parsed.path}")

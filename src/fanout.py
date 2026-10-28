@@ -7,7 +7,8 @@ worker drains the queue: fetch_detail + enrich, retry once, then mark failed.
 The queue is the database: status columns make it restart-resumable.
 
 Search status flow: 'running' (fan-out in progress) -> 'enriching' (fan-out
-done, enrichment pending) -> 'complete' (queue drained).
+done, enrichment pending) -> 'complete' (queue drained). Failed rows can be
+re-queued later via reenrich_search (the ↻ Refresh button on each search card).
 """
 
 from __future__ import annotations
@@ -18,12 +19,24 @@ import sqlite3
 import threading
 import time
 
-from . import router
+from . import events, router
+
 from .db import get_connection
 from .marketplace import Listing, Marketplace
 
+
+
 log = logging.getLogger("boldtrader.fanout")
 
+# Throttle: a dead network makes every fetch fail in ~300ms, so an unpaced
+# drain of hundreds of rows becomes a request firehose that gets the host IP
+# blocked by the marketplaces. Pace every outbound request and cool down hard
+# on a burst of consecutive failures (the signature of an outage, not of a
+# single bad listing).
+ENRICH_MIN_INTERVAL_SECONDS = 5.0
+ENRICH_RETRY_BACKOFF_SECONDS = 1.0
+ENRICH_CONSECUTIVE_FAILURE_LIMIT = 5
+ENRICH_COOLDOWN_SECONDS = 300.0
 
 def fan_out(
     marketplaces: dict[str, Marketplace],
@@ -116,6 +129,12 @@ def fan_out(
             "fan-out #%s done: %d listings, %s",
             search_id, len(verdicts), "enriching" if queued_any else "complete",
         )
+        if not queued_any:
+            # Nothing entered the enrichment queue, so the worker's drain
+            # never flips this search; the completion happens right here.
+            events.publish(
+                "search_complete", {"search_id": search_id, "match_count": 0}
+            )
     finally:
         conn.close()
 
@@ -201,18 +220,66 @@ def _refresh_progress(conn: sqlite3.Connection, search_id: int) -> None:
         )
         conn.commit()
         log.info("search #%s complete", search_id)
+        events.publish(
+            "search_complete",
+            {
+                "search_id": search_id,
+                "match_count": sum(1 for v in verdicts.values() if v in ("match", "unsure")),
+            },
+        )
 
 
-def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], lid: str) -> None:
+def reenrich_search(conn: sqlite3.Connection, search_id: int) -> int:
+    """Re-queue a search's listings for Enrichment; returns how many were queued.
+
+    Targets match/unsure listings whose enrichment is missing or failed;
+    already-enriched rows are left untouched. Re-enrichment re-reads the
+    listing from the Marketplace, so the re-queue reflects current data.
+    Idempotent: safe to call repeatedly, even mid-drain.
+    """
+    row = conn.execute(
+        "SELECT listing_ids FROM bargain_searches WHERE id=?", (search_id,)
+    ).fetchone()
+    if row is None:
+        return 0
+    verdicts = json.loads(row[0])
+    ids = [lid for lid, v in verdicts.items() if v in ("match", "unsure")]
+    if not ids:
+        return 0
+    placeholders = ",".join("?" * len(ids))
+    queued_missing = conn.execute(
+        f"INSERT OR IGNORE INTO enrichments (listing_id, status) "
+        f"SELECT id, 'pending' FROM listings WHERE id IN ({placeholders}) "
+        "AND id NOT IN (SELECT listing_id FROM enrichments)",
+        ids,
+    ).rowcount
+    failed = conn.execute(
+        f"UPDATE enrichments SET status='pending' "
+        f"WHERE status='failed' AND listing_id IN ({placeholders})",
+        ids,
+    ).rowcount
+    total = queued_missing + failed
+    if total:
+        conn.execute(
+            "UPDATE bargain_searches SET status='enriching' WHERE id=?",
+            (search_id,),
+        )
+    conn.commit()
+    return total
+
+
+def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], lid: str) -> bool:
     """Enrich one listing: fetch detail, run the big model, write the record.
 
-    Retries once on failure; a second failure marks the row 'failed'.
+    Retries once (after a short backoff) on failure; a second failure marks
+    the row 'failed'. Returns True on success, False on permanent failure.
     """
     row = conn.execute("SELECT raw, authored_description FROM listings WHERE id=?", (lid,)).fetchone()
     if row is None:
         conn.execute("UPDATE enrichments SET status='failed' WHERE listing_id=?", (lid,))
         conn.commit()
-        return
+        events.publish("enrichment", {"listing_id": lid, "status": "failed"})
+        return False
     raw, authored = row[0], row[1] or ""
     for attempt in range(2):
         try:
@@ -235,25 +302,40 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
             )
             conn.commit()
             log.info("enriched %s", lid)
-            return
+            events.publish("enrichment", {"listing_id": lid, "status": "enriched"})
+            return True
         except Exception as exc:
             log.warning("enrich attempt %d failed for %s: %s", attempt + 1, lid, exc)
-            if attempt == 1:
-                conn.execute(
-                    "UPDATE enrichments SET status='failed' WHERE listing_id=?", (lid,)
-                )
-                conn.commit()
-                log.warning("enrichment failed permanently for %s", lid)
+            if attempt == 0:
+                time.sleep(ENRICH_RETRY_BACKOFF_SECONDS)
+    conn.execute(
+        "UPDATE enrichments SET status='failed' WHERE listing_id=?", (lid,)
+    )
+    conn.commit()
+    log.warning("enrichment failed permanently for %s", lid)
+    events.publish("enrichment", {"listing_id": lid, "status": "failed"})
+    return False
 
 
 def enrichment_worker(
     marketplaces: dict[str, Marketplace],
     poll_seconds: float = 2.0,
 ) -> None:
-    """Single-concurrency loop draining pending enrichment rows. Restart-resumable."""
+    """Single-concurrency loop draining pending enrichment rows. Restart-resumable.
+
+    Throttle: at most one enrichment per ENRICH_MIN_INTERVAL_SECONDS (the
+    interval covers the whole row: fetch_detail + model call + DB write; if
+    the work already took longer, no extra wait). A run of
+    ENRICH_CONSECUTIVE_FAILURE_LIMIT consecutive failures is treated as an
+    outage (dead DNS/network, blocked IP) rather than bad listings, so the
+    worker backs off ENRICH_COOLDOWN_SECONDS instead of firehosing the
+    upstream and getting the host shut down.
+    """
     conn = get_connection()
     log.info("enrichment worker started")
     try:
+        next_allowed = 0.0
+        consecutive_failures = 0
         while True:
             row = conn.execute(
                 "SELECT listing_id FROM enrichments WHERE status='pending' LIMIT 1"
@@ -261,7 +343,23 @@ def enrichment_worker(
             if row is None:
                 time.sleep(poll_seconds)
                 continue
-            _enrich_one(conn, marketplaces, row[0])
+            wait = next_allowed - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            ok = _enrich_one(conn, marketplaces, row[0])
+            next_allowed = time.monotonic() + ENRICH_MIN_INTERVAL_SECONDS
+            if ok:
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= ENRICH_CONSECUTIVE_FAILURE_LIMIT:
+                    log.warning(
+                        "%d consecutive enrichment failures; cooling down %.0fs "
+                        "(upstream outage?)",
+                        consecutive_failures, ENRICH_COOLDOWN_SECONDS,
+                    )
+                    time.sleep(ENRICH_COOLDOWN_SECONDS)
+                    consecutive_failures = 0
             for srow in conn.execute(
                 "SELECT id FROM bargain_searches WHERE status='enriching'"
             ).fetchall():
