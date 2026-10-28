@@ -1,0 +1,81 @@
+/* BoldTrader SPA design tokens — single source of truth.
+   Imported once at the app root. Page components use these only; no raw
+   colors or px lengths. The dark theme is hand-authored value-for-value;
+   never computed. Change a color = edit both [light] and [dark] blocks. */
+
+:root,
+[data-theme="light"] {
+  /* palette */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #dfe3ea;
+  --border-strong: #c4cad6;
+  --fg: #1a1d23;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --on-accent: #ffffff;
+  --ok: #15803d;
+  --ok-bg: #e7f6ec;
+  --warn: #b45309;
+  --warn-bg: #fdf3e3;
+  --bad: #b91c1c;
+  --bad-bg: #fdeaea;
+  --neutral-bg: #eceef1;
+  --scrim: rgba(0, 0, 0, 0.35);
+  /* elevation */
+  --shadow-sm: 0 1px 3px rgba(20, 24, 32, 0.12);
+  --shadow-md: 0 -2px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] {
+  --bg: #101216;
+  --surface: #1a1d23;
+  --surface-2: #23272f;
+  --border: #2e333c;
+  --border-strong: #444b57;
+  --fg: #e6e8ec;
+  --muted: #98a0ad;
+  --accent: #60a5fa;
+  --on-accent: #ffffff;
+  --ok: #4ade80;
+  --ok-bg: #12291c;
+  --warn: #fbbf24;
+  --warn-bg: #2b2312;
+  --bad: #f87171;
+  --bad-bg: #2b1516;
+  --neutral-bg: #262a31;
+  --scrim: rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 -2px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Spacing: 4px steps (prototype drift 6/10/14 snapped to 8/12/16). */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+}
+
+/* Type: 5 sizes (was 10). Line-height stays per-component. */
+:root {
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+}
+
+/* Radius: 3 values (was 7). 50% circles stay border-radius: 50%. */
+:root {
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-pill: 99px;
+}

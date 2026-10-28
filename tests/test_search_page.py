@@ -203,7 +203,9 @@ def test_invalid_submission_rerenders_form_and_creates_nothing(site, monkeypatch
 
 # --- /raw removed -------------------------------------------------------------
 
+@pytest.mark.xfail(reason="SPA fallback (ticket #43, M2) serves the shell at /raw")
 def test_raw_returns_404(site):
+    # /raw was never a real page; M2's SPA fallback now answers it with the shell.
     with pytest.raises(urllib.error.HTTPError) as exc:
         get(site + "/raw")
     assert exc.value.code == 404

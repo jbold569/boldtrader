@@ -8,3 +8,6 @@ boldtrader.db
 logs/
 
 .scratch/bargain-search/logs/
+
+node_modules/
+frontend/dist/

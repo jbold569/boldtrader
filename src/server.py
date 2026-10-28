@@ -41,6 +41,31 @@ _chat_template = string.Template(CHAT_TEMPLATE_PATH.read_text(encoding="utf-8"))
 STATIC_DIR = Path(__file__).parent / "templates"
 STATIC_TYPES = {".css": "text/css", ".js": "application/javascript"}
 
+# Built SPA (ticket #43). Production serving: Python hands out frontend/dist for
+# every GET no old route claims. The check runs before bind (ADR 0009: never
+# silently start a server that cannot serve its own frontend).
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+DIST_TYPES = {
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".html": "text/html",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ico": "image/x-icon",
+}
+
+
+def check_frontend_dist(dist: Path) -> None:
+    """Fail fast (before bind) if the SPA build is missing."""
+    if not (dist / "index.html").is_file():
+        raise SystemExit(
+            f"frontend build missing: {dist / 'index.html'} not found. "
+            "Run `cd frontend && npm install && npm run build` first."
+        )
 
 class _Cache:
     """In-memory TTL cache keyed on (marketplace, query, location, page)."""
@@ -352,7 +377,11 @@ class Handler(BaseHTTPRequestHandler):
             api.handle(self)
             return
         if Path(parsed.path).suffix in STATIC_TYPES:
-            self._serve_static(parsed.path)
+            f = (FRONTEND_DIST / parsed.path.lstrip("/")).resolve()
+            if f.is_file() and FRONTEND_DIST.resolve() in f.parents:
+                self._serve_asset(f)
+            else:
+                self._serve_static(parsed.path)
             return
         if parsed.path == "/chat":
             self._handle_chat_get(parsed)
@@ -374,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/index.html", "/searches"):
             self._handle_searches_get()
             return
-        self._send(404, "Not found")
+        self._serve_spa(parsed.path)
 
     def _handle_raw_search(self, parsed) -> None:
         """Raw keyword search: query/location/marketplace with pagination."""
@@ -848,6 +877,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_asset(self, f: Path) -> None:
+        """Serve one file from frontend/dist (already resolved + guarded)."""
+        data = f.read_bytes()
+        self.send_response(200)
+        self.send_header(
+            "Content-Type", DIST_TYPES.get(f.suffix, "application/octet-stream")
+        )
+        self.send_header("Content-Length", str(len(data)))
+        immutable = str(f).find("/assets/") != -1
+        self.send_header(
+            "Cache-Control",
+            "public, max-age=31536000, immutable" if immutable else "no-cache",
+        )
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_spa(self, path: str) -> None:
+        """Serve a built SPA file; unknown paths get index.html (client routing)."""
+        f = (FRONTEND_DIST / path.lstrip("/")).resolve()
+        if f.is_file() and FRONTEND_DIST.resolve() in f.parents:
+            self._serve_asset(f)
+            return
+        self._send(200, (FRONTEND_DIST / "index.html").read_bytes().decode("utf-8"))
+
     def log_message(self, format: str, *args) -> None:  # quieter default logging
         pass
 
@@ -859,6 +912,7 @@ def main() -> None:
     parser.add_argument("--market", default="all", choices=["all", "offerup", "facebook"],
                         help="default marketplace; override per-request with &m=")
     args = parser.parse_args()
+    check_frontend_dist(FRONTEND_DIST)  # fail before bind (ADR 0009)
 
     logging.basicConfig(
         level=logging.INFO,
