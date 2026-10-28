@@ -196,6 +196,100 @@ def list_searches(qs: dict) -> dict:
     }
 
 
+# --- Marketplace search + Listing patch (ticket #40) ----------------------
+
+
+def _card(l) -> dict:
+    """A raw listing card: what a Marketplace search tile carries."""
+    return {
+        "id": l.id,
+        "title": l.title,
+        "url": l.url,
+        "asking_price": l.price,
+        "marketplace": l.marketplace,
+        "image_url": l.image_url,
+    }
+
+
+def marketplace_search(handler, qs: dict) -> dict:
+    """Ad-hoc Marketplace search: one page of raw listing cards.
+
+    `marketplace` defaults to the server default; `all` fans across.
+    A marketplace that errors is reported in failed_marketplaces and the
+    rest still render — the contract makes partial failure non-fatal."""
+    page, per_page = _read_paging(qs)
+    query = (qs.get("q") or [""])[0].strip()
+    if not query:
+        query = "HP Z440"  # same fallback as the legacy /search page
+    market = (qs.get("marketplace") or [handler.default_market])[0].strip().lower()
+    valid = set(handler.marketplaces) | {"all"}
+    if market not in valid:
+        market = handler.default_market
+    location = (qs.get("location") or [""])[0].strip()
+
+    results: dict[str, object] = {}
+    failed: list[str] = []
+
+    def run(name: str, mp) -> None:
+        try:
+            results[name] = mp.search(query, page, location)
+        except Exception:
+            failed.append(name)
+
+    targets = handler.marketplaces if market == "all" else {market: handler.marketplaces[market]}
+    threads = [threading.Thread(target=run, args=(n, m)) for n, m in targets.items()]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    items: list[dict] = []
+    total = 0
+    total_pages = 1
+    for name, r in results.items():
+        for l in r.listings:
+            l.marketplace = name
+            items.append(_card(l))
+        total += r.total_results
+        total_pages = max(total_pages, r.total_pages)
+    return {
+        "items": items,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": total_pages,
+        "failed_marketplaces": failed,
+    }
+
+
+def patch_listing(handler, listing_id: str) -> None:
+    """Update a Listing's authored description. Setting one re-queues
+    Enrichment for the listing (the authored description overrides
+    Enrichment per glossary, so a fresh pass follows)."""
+    body = _read_draft(handler)
+    if "authored_description" not in body:
+        raise ApiError(400, "malformed_request", "authored_description is required")
+    text = body["authored_description"]
+    if not isinstance(text, str):
+        raise ApiError(400, "malformed_request", "authored_description must be a string")
+    clean = text.strip() or None
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT availability FROM listings WHERE id=?", (listing_id,)
+        ).fetchone()
+        if row is None:
+            raise ApiError(404, "listing_not_found", f"No listing with id {listing_id}")
+        enhanced.set_authored_description(conn, listing_id, clean)
+    finally:
+        conn.close()
+    _send_json(
+        handler,
+        200,
+        {"id": listing_id, "authored_description": clean, "availability": row[0]},
+    )
+
+
 def create_search(handler) -> None:
     body = _read_draft(handler)
     try:
@@ -449,6 +543,18 @@ def handle(handler) -> None:
         if parts[2:3] == ["events"]:
             if handler.command == "GET":
                 events.serve(handler)
+                return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["marketplace"]:
+            if len(parts) == 4 and parts[3] == "search" and handler.command == "GET":
+                _send_json(
+                    handler, 200, marketplace_search(handler, parse_qs(parsed.query))
+                )
+                return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["listings"]:
+            if len(parts) == 4 and handler.command == "PATCH":
+                patch_listing(handler, parts[3])
                 return
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
         if parts[2:3] != ["searches"]:
