@@ -1,0 +1,43 @@
+/* Filter/sort bar (ticket #46). Look settled in prototypes/src (FilterBar +
+   live.css); colors/spacing/type from tokens.css, micro px on primitives
+   exempt (same ruling as form.css). */
+
+.fb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.fb-verdicts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.fb-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.fb-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.fb-field input[type="number"] {
+  width: 110px;
+}
+.fb-count {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

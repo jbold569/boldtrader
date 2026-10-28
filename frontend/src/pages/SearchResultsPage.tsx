@@ -1,16 +1,44 @@
-// Search Results view (ticket #45): the per-Bargain-Search board —
-// liveness banner + ResultCard grid + the edit modal (SearchForm → PATCH).
-// The contract's default result view is match,unsure; filters live in the
-// URL query string and are read here so links (and #46's filter bar)
-// drive the query directly.
+// Search Results view (tickets #45, #46): the per-Bargain-Search board —
+// always-visible filter/sort bar, ResultCard grid, liveness banner, and the
+// edit modal (SearchForm → PATCH). The URL query string IS the query key:
+// the filtered view is shareable and survives reload; filter changes replace
+// the history entry (Back leaves the page rather than unwinding twelve
+// tweaks) while the pager pushes as normal.
+//
+// Live behaviour: the rendered grid is frozen in local state so incoming
+// listings never re-shift content under the reader's scroll. `enrichment`
+// events pull a silent first page and queue the newcomers behind a
+// viewport-sticky "▲ N new listings" banner; the reader adopts on the
+// banner or at the bottom sentinel. Adopting also happens automatically
+// whenever the URL query itself changes — that is user intent, not a
+// surprise. Ended listings dim in place straight off the liveness payload.
 
-import { useState } from "react";
-import { Link, useSearchParams, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams, useParams } from "react-router-dom";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { getLiveness, getResults, getSearch, updateSearch } from "../api/client";
+import type { ResultCard as ResultCardData } from "../api/types";
+import {
+  VERDICT_KEYS,
+  buildQuery,
+  buildSearch,
+  patchSearch,
+  parseFilters,
+} from "../filters";
+import FilterBar from "../components/FilterBar";
 import ResultCard from "../components/ResultCard";
 import SearchForm from "../components/SearchForm";
+import { useEvents } from "../components/EventsProvider";
 import "../components/results.css";
+
+interface View {
+  key: string;
+  items: ResultCardData[];
+}
 
 export default function SearchResultsPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,17 +47,9 @@ export default function SearchResultsPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const page = Math.max(1, Number(params.get("page") || 1));
-  const filters = {
-    page,
-    verdict: params.get("verdict") || undefined,
-    max_price: params.get("max_price") ? Number(params.get("max_price")) : undefined,
-    availability:
-      (params.get("availability") as "live" | "dead" | null) || undefined,
-    sort:
-      (params.get("sort") as "price_asc" | "price_desc" | "newest" | null) ||
-      undefined,
-  };
+  const filters = parseFilters(params);
+  const wireKey = buildSearch(filters);
+  const hasVerdicts = VERDICT_KEYS.some((k) => filters.verdicts[k]);
 
   const search = useQuery({
     queryKey: ["search", searchId],
@@ -37,9 +57,12 @@ export default function SearchResultsPage() {
     enabled: Number.isFinite(searchId),
   });
   const results = useQuery({
-    queryKey: ["results", searchId, filters],
-    queryFn: () => getResults(searchId, filters),
-    enabled: Number.isFinite(searchId),
+    queryKey: ["results", searchId, wireKey],
+    queryFn: () => getResults(searchId, buildQuery(filters)),
+    enabled: Number.isFinite(searchId) && hasVerdicts,
+    // A failed refetch keeps the grid on screen instead of blanking it
+    // (#46: error banner over visible content).
+    placeholderData: keepPreviousData,
   });
   const liveness = useQuery({
     queryKey: ["liveness", searchId],
@@ -50,20 +73,121 @@ export default function SearchResultsPage() {
     refetchInterval: (q) => (q.state.data && !q.state.data.done ? 5000 : false),
   });
 
-  const goto = (p: number) => {
-    const next = new URLSearchParams(params);
-    if (p <= 1) next.delete("page");
-    else next.set("page", String(p));
-    setParams(next);
+  // Frozen grid + queued arrivals.
+  const [view, setView] = useState<View | null>(null);
+  const [pending, setPending] = useState<ResultCardData[]>([]);
+  const viewRef = useRef<View | null>(null);
+  viewRef.current = view;
+  const lastFresh = useRef<{ key: string; items: ResultCardData[] } | null>(null);
+
+  // Adopt whatever the current query just returned.
+  useEffect(() => {
+    const data = results.data;
+    // Only adopt data that actually answers the current query: with
+    // keepPreviousData, `results.data` can be the previous page's
+    // placeholder while the new one is still in flight.
+    if (!data || results.isPlaceholderData || view?.key === wireKey) return;
+    setView({ key: wireKey, items: data.items });
+    setPending([]);
+  }, [results.data, results.isPlaceholderData, wireKey, view]);
+
+  // Silent arrival pull: newest-first page 1 diffed against what is on
+  // screen. Throttled — a fan-out fires one enrichment event per listing
+  // and each pull is the same request.
+  const pullRef = useRef<() => void>(() => {});
+  pullRef.current = async () => {
+    if (!Number.isFinite(searchId) || !hasVerdicts) return;
+    const f = { ...parseFilters(window.location.search), page: 1 };
+    try {
+      const fresh = await getResults(searchId, buildQuery(f));
+      lastFresh.current = { key: buildSearch(f), items: fresh.items };
+      const shown = new Set(viewRef.current?.items.map((c) => c.listing_id));
+      const arrivals = fresh.items.filter((c) => !shown.has(c.listing_id));
+      if (arrivals.length) {
+        setPending((prev) => {
+          const seen = new Set(prev.map((c) => c.listing_id));
+          return [...arrivals.filter((c) => !seen.has(c.listing_id)), ...prev];
+        });
+      }
+    } catch {
+      // Background refresh; the next event or a manual retry covers it.
+    }
   };
+
+  const timerRef = useRef<number | undefined>(undefined);
+  const pullSoon = () => {
+    if (timerRef.current !== undefined) return;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = undefined;
+      void pullRef.current();
+    }, 1500);
+  };
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const events = useEvents();
+  useEffect(() => {
+    const offEnrichment = events.on("enrichment", pullSoon);
+    // Tail of the fan-out: one more pull so the last enrichments are never
+    // left behind by the throttle window.
+    const offComplete = events.on("search_complete", (e) => {
+      if (e.search_id === searchId) void pullRef.current();
+    });
+    return () => {
+      offEnrichment();
+      offComplete();
+    };
+  }, [events, searchId]);
+
+  const adopt = () => {
+    const fresh = lastFresh.current;
+    if (!fresh) return;
+    setView(fresh);
+    setPending([]);
+    if (params.get("page")) {
+      setParams(patchSearch(params, { page: null }), { replace: true });
+    }
+    window.scrollTo({ top: 0 });
+  };
+
+  // Bottom sentinel: reaching the end of the frozen grid adopts the queue.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const adoptRef = useRef(adopt);
+  adoptRef.current = adopt;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || pending.length === 0) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((en) => en.isIntersecting)) adoptRef.current();
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [pending.length]);
+
+  // Ended listings dim in place (#46): straight off the liveness payload,
+  // no banner, the card's own "Ended" chip + dimmed style do the talking.
+  const dead = liveness.data?.done ? liveness.data.dead : [];
+  const shownItems = dead.length
+    ? (view?.items ?? []).map((c) =>
+        dead.includes(c.listing_id) ? { ...c, availability: "dead" } : c,
+      )
+    : (view?.items ?? []);
+
+  const goto = (p: number) => {
+    setParams(patchSearch(params, { page: p <= 1 ? null : p }));
+  };
+
+  const clearFilters = () => setParams(new URLSearchParams(), { replace: true });
 
   const onSaveEdit = async (draft: Parameters<typeof updateSearch>[1]) => {
     setServerError(null);
     try {
       await updateSearch(searchId, draft);
       setEditOpen(false);
-      // The PATCH bumps version + kicks a new fan-out; pull the fresh
-      // search, its results, and the restarted sweep.
+      // The PATCH bumps version + kicks a new fan-out; drop the frozen
+      // grid so the adopt effect replaces it, and pull the fresh search,
+      // its results, and the restarted sweep.
+      setView(null);
+      setPending([]);
       queryClient.invalidateQueries({ queryKey: ["search", searchId] });
       queryClient.invalidateQueries({ queryKey: ["results", searchId] });
     } catch (e) {
@@ -104,6 +228,10 @@ export default function SearchResultsPage() {
       </div>
     ) : null;
 
+  const empty = hasVerdicts
+    ? view !== null && view.items.length === 0
+    : true;
+
   return (
     <section className="sr">
       <div className="sr-head">
@@ -126,41 +254,61 @@ export default function SearchResultsPage() {
 
       {banner}
 
-      {results.isLoading && <p className="muted">Loading results…</p>}
-      {results.error && (
-        <p className="sr-error">
-          Couldn't load results:{" "}
-          {results.error instanceof Error ? results.error.message : results.error}{" "}
-          <Link to="/bargains">Back to the list</Link>
-        </p>
-      )}
+      <FilterBar count={results.data?.total ?? 0} />
 
-      {results.data && (
-        <>
-          {results.data.items.length === 0 ? (
-            <p className="muted">No results on this page.</p>
-          ) : (
-            <div className="rc-grid">
-              {results.data.items.map((card) => (
-                <ResultCard
-                  key={card.listing_id}
-                  card={card}
-                  searchId={searchId}
-                />
-              ))}
+      {(results.isError || pending.length > 0) && (
+        <div className="sr-fixed">
+          {results.isError && (
+            <div className="sr-errbar" role="alert">
+              <strong>Couldn&apos;t refresh results:</strong>{" "}
+              {results.error instanceof Error
+                ? results.error.message
+                : String(results.error)}{" "}
+              <button onClick={() => void results.refetch()}>Retry</button>
             </div>
           )}
+          {pending.length > 0 && (
+            <button className="sr-arrivals" onClick={adopt}>
+              ▲ {pending.length} new listing
+              {pending.length === 1 ? "" : "s"} — tap to add to top
+            </button>
+          )}
+        </div>
+      )}
+
+      {results.isLoading && <p className="muted">Loading results…</p>}
+
+      {empty ? (
+        <div className="sr-empty">
+          <p>No listings match these filters.</p>
+          <button onClick={clearFilters}>Clear filters</button>
+        </div>
+      ) : (
+        <>
+          <div className="rc-grid">
+            {shownItems.map((card) => (
+              <ResultCard key={card.listing_id} card={card} searchId={searchId} />
+            ))}
+          </div>
+          <div ref={sentinelRef} aria-hidden="true" />
           <nav className="bl-pager" aria-label="pages">
-            <button disabled={page <= 1} onClick={() => goto(page - 1)} aria-label="Previous page">
+            <button
+              disabled={filters.page <= 1}
+              onClick={() => goto(filters.page - 1)}
+              aria-label="Previous page"
+            >
               ← Prev
             </button>
             <span className="muted">
-              page {results.data.page} of {results.data.total_pages} (
-              {results.data.total} total)
+              page {results.data?.page ?? filters.page} of{" "}
+              {results.data?.total_pages ?? 1} (
+              {results.data?.total ?? 0} total)
             </span>
             <button
-              disabled={page >= results.data.total_pages}
-              onClick={() => goto(page + 1)}
+              disabled={
+                !results.data || filters.page >= results.data.total_pages
+              }
+              onClick={() => goto(filters.page + 1)}
               aria-label="Next page"
             >
               Next →
