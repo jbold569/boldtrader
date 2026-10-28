@@ -26,11 +26,13 @@ import {
   VERDICT_KEYS,
   buildQuery,
   buildSearch,
+  parseDensity,
   patchSearch,
   parseFilters,
 } from "../filters";
 import FilterBar from "../components/FilterBar";
 import ResultCard from "../components/ResultCard";
+import CondensedView from "../components/CondensedView";
 import SearchForm from "../components/SearchForm";
 import { useEvents } from "../components/EventsProvider";
 import "../components/results.css";
@@ -49,6 +51,10 @@ export default function SearchResultsPage() {
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const wireKey = buildSearch(filters);
+  // Density rides the same URL (#47) but is deliberately NOT in the wire
+  // query: flipping tile ⇄ condensed never changes the query key, so it
+  // never refetches.
+  const density = parseDensity(params);
   const hasVerdicts = VERDICT_KEYS.some((k) => filters.verdicts[k]);
 
   const search = useQuery({
@@ -176,7 +182,12 @@ export default function SearchResultsPage() {
     setParams(patchSearch(params, { page: p <= 1 ? null : p }));
   };
 
-  const clearFilters = () => setParams(new URLSearchParams(), { replace: true });
+  // Clearing filters clears the query, not the density choice (#47).
+  const clearFilters = () =>
+    setParams(
+      new URLSearchParams(density === "condensed" ? { view: "condensed" } : {}),
+      { replace: true },
+    );
 
   const onSaveEdit = async (draft: Parameters<typeof updateSearch>[1]) => {
     setServerError(null);
@@ -285,11 +296,19 @@ export default function SearchResultsPage() {
         </div>
       ) : (
         <>
-          <div className="rc-grid">
-            {shownItems.map((card) => (
-              <ResultCard key={card.listing_id} card={card} searchId={searchId} />
-            ))}
-          </div>
+          {density === "condensed" ? (
+            <CondensedView items={shownItems} searchId={searchId} />
+          ) : (
+            <div className="rc-grid">
+              {shownItems.map((card) => (
+                <ResultCard
+                  key={card.listing_id}
+                  card={card}
+                  searchId={searchId}
+                />
+              ))}
+            </div>
+          )}
           <div ref={sentinelRef} aria-hidden="true" />
           <nav className="bl-pager" aria-label="pages">
             <button

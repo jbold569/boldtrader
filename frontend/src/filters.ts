@@ -18,6 +18,10 @@ export type Verdict = "match" | "unsure" | "not_match";
 export type Availability = "all" | "live" | "dead";
 export type SortKey = "newest" | "price_asc" | "price_desc";
 
+// Display density (#47). Client-only: it selects which renderer paints the
+// same results, never a backend filter (see buildQuery).
+export type Density = "tile" | "condensed";
+
 export const VERDICT_KEYS: Verdict[] = ["match", "unsure", "not_match"];
 
 export const VERDICT_LABELS: Record<Verdict, string> = {
@@ -172,4 +176,17 @@ export function patchSearch(
     }
   }
   return params.toString();
+}
+
+/**
+ * URL query -> display density (#47). Deliberately NOT part of `Filters`:
+ * the Filters object is the wire query key for GET /results, and flipping
+ * the renderer must never look like a new server query. `view=condensed`
+ * is the only truth; absent or anything else is `tile` (the omitted
+ * default), so toggling back just deletes the param.
+ */
+export function parseDensity(
+  query: string | URLSearchParams | null | undefined,
+): Density {
+  return toParams(query).get("view") === "condensed" ? "condensed" : "tile";
 }

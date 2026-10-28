@@ -1,0 +1,139 @@
+/* Condensed ledger view (#47). Look settled in prototypes/src/views.css +
+   CondensedView.tsx (#34): the thumbnail column is frozen with
+   position:sticky inside a horizontal scroll container, and the expanded
+   detail panel is viewport-locked the same way — width pinned to the
+   visible window so the photo and details stay anchored while the other
+   columns slide. colors/spacing/type from tokens.css only. */
+
+.cd-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.cd-scroll {
+  overflow-x: auto;
+}
+.cd-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.cd-table th {
+  text-align: left;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: var(--space-2) 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  background: var(--surface-2);
+}
+.cd-table td {
+  padding: var(--space-2) 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.cd-row {
+  cursor: pointer;
+}
+.cd-row:hover {
+  background: var(--surface-2);
+}
+.cd-dead {
+  opacity: 0.55;
+}
+/* Frozen thumbnail column: stays anchored while the row scrolls
+   horizontally, so the photo stays the row's visual anchor. Separate
+   borders (not collapsed) so the sticky cell keeps its own edge line. */
+.cd-photo {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  width: 60px;
+}
+.cd-table th.cd-photo {
+  background: var(--surface-2);
+}
+.cd-row:hover .cd-photo {
+  background: var(--surface-2);
+}
+.cd-photo img {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  display: block;
+}
+.cd-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.dot-ok {
+  background: var(--ok);
+}
+.dot-off {
+  background: var(--border-strong);
+}
+.dot-warn {
+  background: var(--warn);
+}
+.dot-idle {
+  background: var(--accent);
+}
+.cd-title {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-title a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.cd-title a:hover {
+  text-decoration: underline;
+}
+.cd-cond {
+  white-space: nowrap;
+}
+.cd-mp .chip {
+  margin-left: var(--space-2);
+}
+.cd-expand td {
+  padding: 0;
+}
+/* Lock the detail panel to the viewport: as the ledger scrolls
+   horizontally, the expanded content stays visible instead of sliding
+   away. Width matches the visible scroll window (viewport minus page
+   padding, 16px each side); clipped to the card by the wrapper's
+   overflow:hidden. The sticky photo column (z-index 1) slides above the
+   panel's left edge — that overlap is the settled look. */
+.cd-expand-inner {
+  position: sticky;
+  left: 0;
+  width: calc(100vw - 32px);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+}
+.cd-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Phone: the condensed table keeps a horizontal scroll strip so columns
+   stay dense instead of squashing; the first three columns fit a 390px
+   screen for the first glance. */
+@media (max-width: 700px) {
+  .cd-table {
+    min-width: 680px;
+  }
+}

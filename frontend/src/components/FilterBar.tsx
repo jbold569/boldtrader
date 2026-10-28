@@ -10,11 +10,13 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
+  type Density,
   type SortKey,
   type Verdict,
   VERDICT_KEYS,
   VERDICT_LABELS,
   DEFAULT_WIRE_VERDICT,
+  parseDensity,
   patchSearch,
   parseFilters,
 } from "../filters";
@@ -23,6 +25,7 @@ import "./filterbar.css";
 export default function FilterBar({ count }: { count: number }) {
   const [params, setParams] = useSearchParams();
   const f = parseFilters(params);
+  const density = parseDensity(params);
   const urlMax = params.get("max_price");
   const [priceDraft, setPriceDraft] = useState("");
   // Keep the draft honest when the URL moves under us (Clear filters,
@@ -32,6 +35,15 @@ export default function FilterBar({ count }: { count: number }) {
   // Any filter change narrows to a different first page: reset page too.
   const write = (updates: Record<string, string | null>) => {
     setParams(patchSearch(params, { ...updates, page: null }), { replace: true });
+  };
+
+  // Density is NOT a filter: flipping the renderer keeps the current
+  // page/filter untouched (#47) — no page reset, no refetch.
+  const setDensity = (d: Density) => {
+    // `tile` is the omitted default; `condensed` names itself.
+    setParams(patchSearch(params, { view: d === "tile" ? null : d }), {
+      replace: true,
+    });
   };
 
   const setVerdict = (v: Verdict, on: boolean) => {
@@ -66,6 +78,22 @@ export default function FilterBar({ count }: { count: number }) {
             {VERDICT_LABELS[v]}
           </label>
         ))}
+      </div>
+      <div className="fb-density" role="group" aria-label="Display density">
+        <button
+          type="button"
+          aria-pressed={density === "tile"}
+          onClick={() => setDensity("tile")}
+        >
+          ▦ Tile
+        </button>
+        <button
+          type="button"
+          aria-pressed={density === "condensed"}
+          onClick={() => setDensity("condensed")}
+        >
+          ☰ Condensed
+        </button>
       </div>
       <div className="fb-field">
         <label htmlFor="fb-max">Max price</label>

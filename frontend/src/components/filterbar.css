@@ -41,3 +41,28 @@
   color: var(--muted);
   font-size: var(--text-sm);
 }
+
+/* Density toggle (#47): two-segment control; the pressed segment reads as
+   the active state via the accent tokens. */
+.fb-density {
+  display: flex;
+}
+.fb-density button {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+.fb-density button:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.fb-density button:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin-left: -1px;
+}
+.fb-density button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  z-index: 1;
+}

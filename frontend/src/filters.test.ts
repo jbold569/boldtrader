@@ -9,6 +9,7 @@ import {
   type Filters,
   buildQuery,
   buildSearch,
+  parseDensity,
   patchSearch,
   parseFilters,
 } from "./filters";
@@ -216,5 +217,44 @@ describe("patchSearch", () => {
     expect(f.page).toBe(1);
     expect(f.max_price).toBe(80);
     expect(f.sort).toBe("price_desc");
+  });
+});
+
+describe("parseDensity", () => {
+  it("defaults to tile for empty / absent / garbage input", () => {
+    for (const q of ["", "?", null, undefined, "view=tile", "view=zzz", "foo=1"]) {
+      expect(parseDensity(q)).toBe("tile");
+    }
+  });
+
+  it("reads view=condensed", () => {
+    expect(parseDensity("view=condensed")).toBe("condensed");
+    expect(parseDensity("?view=condensed&sort=price_asc")).toBe("condensed");
+  });
+
+  it("accepts URLSearchParams directly", () => {
+    expect(parseDensity(new URLSearchParams("view=condensed"))).toBe("condensed");
+  });
+
+  it("density never leaks into the wire query", () => {
+    // parseDensity is a URL-only concern; the wire query for the SAME
+    // filters must be identical whichever density the URL carries.
+    const f = parseFilters("verdict=match&page=3");
+    expect(buildQuery(f)).toEqual({ verdict: "match", page: "3" });
+  });
+
+  it("toggling density back to tile deletes the param", () => {
+    const condensed = patchSearch("", { view: "condensed" });
+    expect(parseDensity(condensed)).toBe("condensed");
+    const tile = patchSearch(condensed, { view: null });
+    expect(tile).toBe("");
+    expect(parseDensity(tile)).toBe("tile");
+  });
+
+  it("density and filters round-trip independently", () => {
+    const url = patchSearch("sort=price_desc&page=2", { view: "condensed" });
+    expect(parseDensity(url)).toBe("condensed");
+    expect(parseFilters(url).sort).toBe("price_desc");
+    expect(parseFilters(url).page).toBe(2);
   });
 });
