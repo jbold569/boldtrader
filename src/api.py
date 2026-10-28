@@ -20,6 +20,7 @@ from . import chat as chat_mod
 from . import enhanced, events, liveness
 from .db import get_connection
 from .fanout import fan_out, reenrich_search
+from . import router
 
 DEFAULT_PER_PAGE = 50
 MAX_PER_PAGE = 200
@@ -530,7 +531,320 @@ def get_liveness(handler, search_id: str) -> None:
     _send_json(handler, 200, liveness.status(key))
 
 
+# --- Chat Sessions + the streaming turn (ticket #42) ----------------------
+
+
+def list_chat_sessions(qs: dict) -> dict:
+    """Paginated list of Chat Sessions, newest first."""
+    page, per_page = _read_paging(qs)
+    conn = get_connection()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0]
+        rows = conn.execute(
+            "SELECT id, title, created_at, updated_at FROM chat_sessions "
+            "ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?",
+            (per_page, (page - 1) * per_page),
+        ).fetchall()
+    finally:
+        conn.close()
+    items = [
+        {
+            "id": sid,
+            "title": title,
+            "created_at": _iso(created_at),
+            "updated_at": _iso(updated_at),
+        }
+        for sid, title, created_at, updated_at in rows
+    ]
+    return {
+        "items": items,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": max(1, math.ceil(total / per_page)),
+    }
+
+
+def create_chat_session(handler) -> None:
+    body = _read_body(handler)
+    title = body.get("title") or ""
+    if not isinstance(title, str):
+        raise ApiError(400, "malformed_request", "title must be a string")
+    conn = get_connection()
+    try:
+        session_id = chat_mod.create_session(conn, title)
+        created = _load_chat_session(conn, session_id)
+    finally:
+        conn.close()
+    _send_json(handler, 201, created)
+
+
+def _load_chat_session(conn, session_id: str) -> dict:
+    try:
+        key = int(session_id)
+    except (TypeError, ValueError):
+        raise ApiError(
+            404, "chat_session_not_found", f"No chat session with id {session_id}"
+        )
+    row = conn.execute(
+        "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id=?",
+        (key,),
+    ).fetchone()
+    if row is None:
+        raise ApiError(404, "chat_session_not_found", f"No chat session with id {session_id}")
+    return {
+        "id": row[0],
+        "title": row[1],
+        "created_at": _iso(row[2]),
+        "updated_at": _iso(row[3]),
+    }
+
+
+def get_chat_session(session_id: str) -> dict:
+    conn = get_connection()
+    try:
+        session = _load_chat_session(conn, session_id)
+        rows = conn.execute(
+            "SELECT role, content, created_at FROM session_messages "
+            "WHERE chat_session_id=? ORDER BY rowid",
+            (session["id"],),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "id": session["id"],
+        "title": session["title"],
+        "messages": [
+            {"role": role, "content": content, "created_at": _iso(created_at)}
+            for role, content, created_at in rows
+        ],
+    }
+
+
+def delete_chat_session(session_id: str) -> None:
+    conn = get_connection()
+    try:
+        try:
+            key = int(session_id)
+        except (TypeError, ValueError):
+            raise ApiError(
+                404, "chat_session_not_found", f"No chat session with id {session_id}"
+            )
+        cur = conn.execute("DELETE FROM chat_sessions WHERE id=?", (key,))
+        if cur.rowcount == 0:
+            raise ApiError(
+                404, "chat_session_not_found", f"No chat session with id {session_id}"
+            )
+        conn.execute("DELETE FROM session_messages WHERE chat_session_id=?", (key,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- The streaming turn -----------------------------------------------------
+
+
+def _sse(handler, name: str, payload: dict) -> None:
+    handler.wfile.write(
+        f"event: {name}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
+    )
+    handler.wfile.flush()
+
+
+def _accumulate_tool_calls(by_index: dict, deltas) -> None:
+    """Merge streamed tool-call fragments by index (OpenAI incremental style:
+    id/name arrive once, arguments arrive as string fragments)."""
+    for d in deltas:
+        idx = d.get("index", 0)
+        slot = by_index.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+        if d.get("id"):
+            slot["id"] = d["id"]
+        fn = d.get("function") or {}
+        if fn.get("name"):
+            slot["name"] = fn["name"]
+        if fn.get("arguments"):
+            slot["arguments"] += fn["arguments"]
+
+
+def stream_turn(handler, session_id: str) -> None:
+    """One chat turn as a BoldTrader SSE stream (ticket #42).
+
+    The router's OpenAI-format chunks (reasoning_content deltas,
+    content deltas, tool-call fragments) are translated into the
+    contract's typed events; the router format never reaches the
+    client. The user message is persisted before the first frame so a
+    mid-turn disconnect loses nothing; a router failure mid-turn emits
+    an `error` event and the stream closes cleanly.
+    """
+    body = _read_body(handler)
+    message = body.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise ApiError(400, "malformed_request", "message is required")
+    conn = get_connection()
+    try:
+        session = _load_chat_session(conn, session_id)
+        # Persist the user message before streaming: a mid-turn disconnect
+        # loses nothing (contract, ticket #42).
+        chat_mod.append_session_message(conn, session["id"], "user", message)
+        chat_mod._touch(conn, session["id"])
+        transcript = chat_mod.load_session_transcript(conn, session["id"])
+    finally:
+        conn.close()
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream")
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+
+    messages = [{"role": "system", "content": chat_mod.SYSTEM_PROMPT}]
+    messages += chat_mod.reconstruct_messages(transcript)
+    conn = get_connection()  # fresh conn for the turn's persistence
+    try:
+        for _round in range(chat_mod.MAX_TOOL_ROUNDS):
+            content = ""
+            by_index: dict[int, dict] = {}
+            finish = None
+            for chunk in router.stream_chat(
+                messages, tools=chat_mod.TOOL_SCHEMAS
+            ):
+                choices = chunk.get("choices") or [{}]
+                delta = choices[0].get("delta") or {}
+                if delta.get("reasoning_content"):
+                    _sse(handler, "reasoning", {"text": delta["reasoning_content"]})
+                if delta.get("content"):
+                    content += delta["content"]
+                    _sse(handler, "token", {"text": delta["content"]})
+                if delta.get("tool_calls"):
+                    _accumulate_tool_calls(by_index, delta["tool_calls"])
+                if choices[0].get("finish_reason"):
+                    finish = choices[0]["finish_reason"]
+            if finish != "tool_calls":
+                reply, drafts = chat_mod.parse_reply(content)
+                chat_mod.append_session_message(conn, session["id"], "assistant", reply)
+                chat_mod._touch(conn, session["id"])
+                for draft in drafts:
+                    _sse(handler, "draft", draft)
+                _sse(
+                    handler,
+                    "turn_complete",
+                    {"session_id": session["id"], "message": reply},
+                )
+                return
+            tool_calls = [
+                {
+                    "id": slot["id"],
+                    "type": "function",
+                    "function": {"name": slot["name"], "arguments": slot["arguments"]},
+                }
+                for _, slot in sorted(by_index.items())
+            ]
+            blob = json.dumps({"content": content, "tool_calls": tool_calls})
+            messages.append(
+                {"role": "assistant", "content": content, "tool_calls": tool_calls}
+            )
+            chat_mod.append_session_message(
+                conn, session["id"], "assistant", blob
+            )
+            chat_mod._touch(conn, session["id"])
+            for call in tool_calls:
+                _sse(
+                    handler,
+                    "tool_call",
+                    {
+                        "name": call["function"]["name"],
+                        "arguments": json.loads(call["function"]["arguments"] or "{}"),
+                    },
+                )
+                name, query, output = chat_mod._run_tool(call, conn, message)
+                messages.append(
+                    {"role": "tool", "tool_call_id": call["id"], "content": output}
+                )
+                chat_mod.append_session_message(conn, session["id"], "tool", output)
+                chat_mod._touch(conn, session["id"])
+                _sse(
+                    handler,
+                    "tool_result",
+                    {
+                        "name": name,
+                        "output": output,
+                        "chip": chat_mod.chip_text(name, query, output),
+                    },
+                )
+        # Round cap reached: one final call without tools — model must answer.
+        content = ""
+        for chunk in router.stream_chat(messages):
+            choices = chunk.get("choices") or [{}]
+            delta = choices[0].get("delta") or {}
+            if delta.get("reasoning_content"):
+                _sse(handler, "reasoning", {"text": delta["reasoning_content"]})
+            if delta.get("content"):
+                content += delta["content"]
+                _sse(handler, "token", {"text": delta["content"]})
+        reply, drafts = chat_mod.parse_reply(content)
+        chat_mod.append_session_message(conn, session["id"], "assistant", reply)
+        chat_mod._touch(conn, session["id"])
+        for draft in drafts:
+            _sse(handler, "draft", draft)
+        _sse(
+            handler,
+            "turn_complete",
+            {"session_id": session["id"], "message": reply},
+        )
+    except (BrokenPipeError, ConnectionResetError):
+        pass  # client hung up; the DB holds the durable state
+    except Exception as exc:
+        try:
+            _sse(
+                handler,
+                "error",
+                {"code": "router_error", "message": f"Model call failed: {exc}"},
+            )
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+    finally:
+        conn.close()
+
+
+def _read_body(handler) -> dict:
+    """Parse the JSON request body; malformed payloads are 400."""
+    length = int(handler.headers.get("Content-Length") or 0)
+    raw = handler.rfile.read(length).decode("utf-8") if length else ""
+    try:
+        body = json.loads(raw or "{}")
+    except ValueError:
+        raise ApiError(400, "malformed_request", "request body is not valid JSON")
+    if not isinstance(body, dict):
+        raise ApiError(400, "malformed_request", "request body must be a JSON object")
+    return body
+
+
 # --- Routing ---------------------------------------------------------------
+
+
+def _route_chat(handler, parts: list, parsed) -> None:
+    """Dispatch /api/v1/chat/... (ticket #42)."""
+    if parts[3:4] != ["sessions"]:
+        raise ApiError(404, "not_found", f"No route for {parsed.path}")
+    if len(parts) == 4:
+        if handler.command == "GET":
+            _send_json(handler, 200, list_chat_sessions(parse_qs(parsed.query)))
+            return
+        if handler.command == "POST":
+            create_chat_session(handler)
+            return
+    elif len(parts) == 5:
+        if handler.command == "GET":
+            _send_json(handler, 200, get_chat_session(parts[4]))
+            return
+        if handler.command == "DELETE":
+            delete_chat_session(parts[4])
+            handler._send(204, "", content_type="application/json")
+            return
+    elif len(parts) == 6 and parts[5] == "messages":
+        if handler.command == "POST":
+            stream_turn(handler, parts[4])
+            return
+    raise ApiError(404, "not_found", f"No route for {parsed.path}")
 
 
 def handle(handler) -> None:
@@ -545,6 +859,9 @@ def handle(handler) -> None:
                 events.serve(handler)
                 return
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["chat"]:
+            _route_chat(handler, parts, parsed)
+            return
         if parts[2:3] == ["marketplace"]:
             if len(parts) == 4 and parts[3] == "search" and handler.command == "GET":
                 _send_json(

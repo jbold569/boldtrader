@@ -243,3 +243,42 @@ def chat_with_tools(
         except (requests.RequestException, ValueError, KeyError) as exc:
             last = exc
     raise RouterError(f"router tool call failed after retry: {last}") from last
+
+
+def stream_chat(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    model: str = CHAT_MODEL,
+    max_tokens: int = 2000,
+):
+    """POST a streaming chat completion; yield each parsed SSE chunk dict.
+
+    The router streams `data:`-only JSON frames and ends with `data: [DONE]`
+    (ticket #16 findings). No retry: once deltas are in flight a retry would
+    duplicate them; the chat turn owns failure handling instead.
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "chat_template_kwargs": {"enable_thinking": False},
+        "stream": True,
+    }
+    if tools is not None:
+        payload["tools"] = tools
+    resp = requests.post(CHAT_URL, json=payload, timeout=TIMEOUT, stream=True)
+    try:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            text = line.decode("utf-8")
+            if not text.startswith("data:"):
+                continue
+            data = text[len("data:"):].strip()
+            if data == "[DONE]":
+                return
+            yield json.loads(data)
+    finally:
+        resp.close()
