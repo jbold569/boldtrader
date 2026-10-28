@@ -494,8 +494,10 @@ function ChatA({
 }
 
 // ============================================================ VARIANT B
-// Status rail above the transcript: tools + thinking live in the rail,
-// never in the stream. Draft still lands inline (it's content, not machinery).
+// Inline work-log: tool chips stream INTO the conversation, rendered ahead
+// of the turn's generated text (not a fixed rail — the rail scrolled out
+// of view while the transcript moved). Committed turns keep the chip row
+// above their text; thinking, when shown, sits ahead of the chips.
 function ChatB({
   showReasoning,
   scenarioKey,
@@ -510,21 +512,7 @@ function ChatB({
   const [phases, setPhases] = useState<Record<number, DraftPhase>>({});
 
   return (
-    <div className="vb-wrap">
-      <div className="vb-rail">
-        <span className="vb-rail-label">{busy ? "Working" : "Idle"}</span>
-        {busy && turn.tools.length === 0 && (
-          <span className="ct-chip ct-chip-run">
-            <span className="ct-dot" /> warming up…
-          </span>
-        )}
-        {turn.tools.map((t, i) => (
-          <ToolChip key={i} t={t} />
-        ))}
-      </div>
-      {showReasoning && turn.reasoning && (
-        <div className="vb-thinking-strip">🧠 {turn.reasoning}</div>
-      )}
+    <div className="va-wrap">
       <div className="ct-scroll" ref={scrollRef}>
         <ScenarioPicker
           onPick={(k) => {
@@ -543,6 +531,14 @@ function ChatB({
             return (
               <div key={i} className="ct-msg">
                 <div className="ct-role">Agent</div>
+                {showReasoning && <ThinkingBlock text={en.reasoning} live={false} />}
+                {en.tools.length > 0 && (
+                  <div className="vb-log">
+                    {en.tools.map((t, j) => (
+                      <ToolChip key={j} t={t} />
+                    ))}
+                  </div>
+                )}
                 {en.text}
               </div>
             );
@@ -562,10 +558,29 @@ function ChatB({
             </div>
           );
         })}
-        {busy && turn.text && (
+        {busy && (
           <div className="ct-msg">
             <div className="ct-role">Agent</div>
-            <span className="ct-caret">{turn.text}</span>
+            {showReasoning && (
+              <ThinkingBlock text={turn.reasoning} live={!turn.text && turn.tools.length === 0} />
+            )}
+            {turn.tools.length > 0 && (
+              <div className="vb-log">
+                {turn.tools.map((t, i) => (
+                  <ToolChip key={i} t={t} />
+                ))}
+              </div>
+            )}
+            {turn.text ? (
+              <span className="ct-caret">{turn.text}</span>
+            ) : (
+              turn.tools.length === 0 &&
+              !showReasoning && (
+                <div className="va-tail">
+                  <Spinner /> thinking…
+                </div>
+              )
+            )}
           </div>
         )}
       </div>
@@ -711,31 +726,22 @@ export default function ChatPage({
   const Chat = variant === "b" ? ChatB : variant === "c" ? ChatC : ChatA;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        // viewport minus page top padding (14px) and the switcher zone (~82px)
-        height: "calc(100vh - 96px)",
-      }}
-    >
+    <div className="chat-shell">
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "8px 14px",
+          padding: "8px 48px 8px 14px",
           borderBottom: "1px solid var(--border)",
           background: "var(--surface)",
           flex: "none",
         }}
       >
         <h1 style={{ margin: 0, fontSize: 16 }}>💬 Chat · variant {V}</h1>
-        <button
-          onClick={() => patchUrl({ reason: showReasoning ? "hide" : "show" })}
-        >
-          🧠 reasoning: {showReasoning ? "shown" : "hidden"}
-        </button>
+        <span style={{ fontSize: 13, color: "var(--muted)" }}>
+          reasoning: {showReasoning ? "shown" : "hidden"} — toggle in the pill
+        </span>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
         <Chat

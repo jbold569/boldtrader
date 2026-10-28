@@ -1,5 +1,39 @@
 /* Chat page prototype styles (#21). Light/dark via base.css tokens. */
+/* chat page shell: keep clear of the pill (taller when it wraps on phone) */
+.chat-shell {
+  display: flex;
+  flex-direction: column;
+  /* viewport minus page padding + header (~55px) and the pill zone (~90px) */
+  height: calc(100vh - 145px);
+}
+@media (max-width: 767px) {
+  .chat-shell {
+    height: calc(100vh - 190px);
+  }
+}
+.vb-log {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
 
+/* small theme button, fixed top-right (moved out of the bottom pill) */
+.sw-theme {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 310;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  box-shadow: var(--shadow);
+}
 /* ---------- shared: transcript ---------- */
 .ct-scroll {
   flex: 1;
