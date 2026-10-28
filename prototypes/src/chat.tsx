@@ -719,7 +719,8 @@ export default function ChatPage({
   variant: "a" | "b" | "c";
 }) {
   const q = new URLSearchParams(window.location.search);
-  const showReasoning = q.get("reason") !== "hide";
+  // Reasoning default: HIDDEN (settled in review). ?reason=show forces it on.
+  const showReasoning = q.get("reason") === "show";
   const scenario = q.get("scenario") ?? "simple";
 
   const V = variant === "b" ? "B" : variant === "c" ? "C" : "A";

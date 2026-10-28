@@ -7,6 +7,9 @@
 //   C  no hidden navigation: persistent sidebar on desktop (>=768px),
 //      fixed bottom tab bar on phone
 // Throwaway. Fake data inline; no backend calls.
+//
+// Theme toggle lives as a single small fixed button top-right (.sw-theme in
+// chat.css), rendered by Switcher — NOT inside the trays.
 
 import {
   useEffect,
@@ -15,8 +18,6 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { patchUrl } from "./filters";
-import { useTheme } from "./theme";
 import "./trays.css";
 
 const NAV = [
@@ -36,21 +37,8 @@ const SESSIONS = [
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
 
-function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const t = useTheme();
-  return (
-    <button
-      className={compact ? "tab" : "tray-theme"}
-      onClick={() => patchUrl({ theme: t === "dark" ? "light" : "dark" })}
-    >
-      {compact ? (t === "dark" ? "☀" : "☾") : t === "dark" ? "☀ Light mode" : "☾ Dark mode"}
-      {compact && <span className="tab-label">{t === "dark" ? "Light" : "Dark"}</span>}
-    </button>
-  );
-}
-
 // The payload every hidden-nav variant carries: primary action, the three
-// top-level destinations, recent Chat Sessions, theme.
+// top-level destinations, recent Chat Sessions.
 function TrayBody({ onPick }: { onPick: () => void }) {
   return (
     <div className="tray-body">
@@ -104,9 +92,6 @@ function TrayBody({ onPick }: { onPick: () => void }) {
           </a>
         </li>
       </ul>
-      <div className="tray-footer">
-        <ThemeToggle />
-      </div>
     </div>
   );
 }
@@ -176,7 +161,6 @@ export function TrayA({ children }: { children: ReactNode }) {
           BoldTrader
         </a>
         <span className="topbar-spacer" />
-        <ThemeToggle />
       </header>
       <div className="shell-a-body">{children}</div>
       {open && <div className="scrim show" onClick={() => setOpen(false)} />}
@@ -324,7 +308,6 @@ export function TrayC({ children }: { children: ReactNode }) {
           <span>＋</span>
           <span className="tab-label">New Chat</span>
         </button>
-        <ThemeToggle compact />
       </nav>
     </div>
   );
