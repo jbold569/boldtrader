@@ -3,16 +3,19 @@
 // behavior is fabricated per the contract in mockServer.ts and we prototype on
 // that. The decisions this page exists to be judged against:
 //
-//   1. Filter/sort request strategy: does a request per filter change feel
-//      instant, or is debounce/explicit submit needed? Toggle `?req=`.
+//   1. Filter/sort request strategy: request on every change vs explicit
+//      submit. The request log makes every fired request observable instead of
+//      guessed. `?req=immediate|submit` (immediate default; `?debounce=ms` optional).
 //   2. Live events interleaving with the user's current filter/page: cards
-//      updated (enrichment landed, liveness died) vs. new arrivals. Per the
-//      #34 decision, arrivals PREPEND with a visible banner — this page shows
-//      exactly that so you can judge if it reads as alive or as broken.
+//      updated (enrichment landed, listing ended) vs. new arrivals. Arrivals
+//      prepend with a visible banner (#34). Banners are FIXED to the viewport
+//      so they stay visible while scrolling the tile grid.
 //   3. Empty / loading / error transitions under filters that match nothing.
 //
-// Fake-world controls (latency, error rate, event cadence, scripted injections)
-// stand in for whatever the real backend does. Everything labeled ⚙ is a knob.
+// Display terminology: availability `dead` renders as "Ended" (user ruling);
+// the wire value stays `dead` per contract #17.
+// Fake-world controls (latency, error rate, event cadence) stand in for the
+// real backend. Everything labeled ⚙ is a knob.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LISTINGS } from "./data";
@@ -23,8 +26,6 @@ import CondensedView from "./CondensedView";
 import {
   SETTINGS,
   getResults,
-  rejectListing,
-  reenrich,
   nextEvent,
   resetWorld,
   type BgEvent,
@@ -46,10 +47,32 @@ function toQuery(f: Filters, page: number): ResultsQuery {
   };
 }
 
+// Human-readable request line so the request strategy is visible, not inferred.
+// `dead` is shown as "ended" — user-facing vocabulary.
+function describeReq(q: ResultsQuery): string {
+  const bits = [`page=${q.page}`];
+  if (q.verdicts.length !== 3)
+    bits.push(`verdict=${q.verdicts.join(",") || "none"}`);
+  if (q.max_price != null) bits.push(`≤${q.max_price}`);
+  if (q.availability && q.availability !== "all")
+    bits.push(q.availability === "dead" ? "ended" : q.availability);
+  bits.push(`sort=${q.sort}`);
+  return bits.join(" ");
+}
+
 export default function LivePage() {
-  const q0 = new URLSearchParams(window.location.search);
-  const reqMode = q0.get("req") === "submit" ? "submit" : "immediate";
-  const view = q0.get("view") === "condensed" ? "condensed" : "tile";
+  const [urlQ, setUrlQ] = useState(
+    () => new URLSearchParams(window.location.search)
+  );
+  useEffect(() => {
+    const on = () => setUrlQ(new URLSearchParams(window.location.search));
+    window.addEventListener("popstate", on);
+    return () => window.removeEventListener("popstate", on);
+  }, []);
+
+  const reqMode = urlQ.get("req") === "submit" ? "submit" : "immediate";
+  const view = urlQ.get("view") === "condensed" ? "condensed" : "tile";
+  const debounceMs = Number(urlQ.get("debounce") ?? "0") || 0;
 
   const [items, setItems] = useState(() => LISTINGS.slice(0, 8));
   const [total, setTotal] = useState(8);
@@ -60,20 +83,34 @@ export default function LivePage() {
   const [arrivals, setArrivals] = useState(0);
   const [livenessBanner, setLivenessBanner] = useState("");
   const [lastEvent, setLastEvent] = useState("");
-  const [latency, setLatency] = useState(SETTINGS.latencyMs);
+  const fetchedFor = useRef(
+    JSON.stringify(
+      toQuery(parseFilters(new URLSearchParams(window.location.search)), 1)
+    )
+  );
   const [errorRate, setErrorRate] = useState(0);
   const [cadence, setCadence] = useState(SETTINGS.eventEveryMs);
   const [auto, setAuto] = useState(true);
-  const fetchedFor = useRef("");
+  const [reqLog, setReqLog] = useState<string[]>([]);
+  const reqCount = useRef(0);
+  const [latency, setLatency] = useState(SETTINGS.latencyMs);
 
   const fetchPage = useCallback(
-    (p: number, f: Filters, silent = false) => {
-      const key = JSON.stringify([toQuery(f, p)]);
+    (p: number, f: Filters, trigger = "request", silent = false) => {
+      const query = toQuery(f, p);
+      const key = JSON.stringify(query);
       if (!silent) {
         setLoading(true);
         setError(null);
       }
-      getResults(toQuery(f, p))
+      reqCount.current += 1;
+      setReqLog((prev) =>
+        [
+          ...prev,
+          `${new Date().toLocaleTimeString()} · ${trigger} · ${describeReq(query)}`,
+        ].slice(-6)
+      );
+      getResults(query)
         .then(({ env, meta }) => {
           setLoading(false);
           setError(null);
@@ -96,25 +133,31 @@ export default function LivePage() {
   );
 
   // Immediate mode: every URL (filter/page) change fires a request, optionally
-  // debounced by `?debounce=ms` (default 0). This is the feel test.
-  const debounceMs = Number(q0.get("debounce") ?? "0") || 0;
+  // debounced by `?debounce=ms` (default 0). This is the feel test — watch the
+  // request log count climb with each filter tweak.
   useEffect(() => {
-    const f = parseFilters(new URLSearchParams(window.location.search));
-    const key = JSON.stringify([toQuery(f, page)]);
+    const f = parseFilters(urlQ);
+    const key = JSON.stringify(toQuery(f, page));
     if (key === fetchedFor.current) return;
     if (reqMode === "submit") return; // explicit submit only
     if (debounceMs > 0) {
-      const t = setTimeout(() => fetchPage(page, f), debounceMs);
+      const t = setTimeout(() => fetchPage(page, f, "filter change"), debounceMs);
       return () => clearTimeout(t);
     }
-    fetchPage(page, f);
+    fetchPage(page, f, "filter change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [window.location.search, page, reqMode, debounceMs]);
+  }, [urlQ, page, reqMode, debounceMs]);
 
   const onSubmit = () => {
     const f = parseFilters(new URLSearchParams(window.location.search));
-    fetchPage(1, f);
+    setPage(1);
+    fetchPage(1, f, "Apply click");
   };
+
+  // Submit-mode "stale" signal: current filters differ from what's on screen.
+  const dirty =
+    reqMode === "submit" &&
+    JSON.stringify(toQuery(parseFilters(urlQ), 1)) !== fetchedFor.current;
 
   // Background event stream.
   const handleEvent = useCallback((ev: BgEvent) => {
@@ -137,7 +180,7 @@ export default function LivePage() {
       setLastEvent(`enrichment landed on ${ev.data.listing_id}`);
     } else if (ev.event === "liveness") {
       if (ev.data.dead_count > 0) {
-        // dim one live card in place (the freshest death in our fixture order)
+        // dim one live card in place (the freshest end in our fixture order)
         setItems((prev) => {
           const idx = prev.findIndex((r) => r.availability === "live");
           if (idx === -1) return prev;
@@ -147,7 +190,7 @@ export default function LivePage() {
         });
       }
       if (ev.data.banner) setLivenessBanner(ev.data.banner);
-      setLastEvent(`liveness: ${ev.data.dead_count} dead, done=${ev.data.done}`);
+      setLastEvent(`liveness: ${ev.data.dead_count} ended, done=${ev.data.done}`);
     } else if (ev.event === "search_complete") {
       setArrivals((a) => a + 1);
       setLastEvent(`search_complete: ${ev.data.match_count} matches`);
@@ -167,15 +210,6 @@ export default function LivePage() {
     if (k === "eventEveryMs") setCadence(v);
   };
 
-  const doReject = (id: string) =>
-    rejectListing(id, "user rejected").then(() =>
-      setItems((prev) =>
-        prev.map((r) =>
-          r.id === id ? { ...r, availability: "dead" as const } : r
-        )
-      )
-    );
-
   const showArrivals = () => {
     const f = parseFilters(new URLSearchParams(window.location.search));
     patchUrl({ page: "1" });
@@ -185,27 +219,45 @@ export default function LivePage() {
       setPages(env.total_pages);
       setPage(1);
       setArrivals(0);
+      setReqLog((prev) =>
+        [
+          ...prev,
+          `${new Date().toLocaleTimeString()} · arrivals merge · sort=newest page=1`,
+        ].slice(-6)
+      );
     });
-  };
-
-  const scenario = (name: string) => {
-    if (name === "empty") patchUrl({ verdict: "none" });
-    if (name === "err") setKnob("errorRate", 1), setErrorRate(1);
-    if (name === "flaky") setErrorRate(0.4), (SETTINGS.errorRate = 0.4);
-    if (name === "clean") setErrorRate(0), (SETTINGS.errorRate = 0);
-    if (name === "slow") setKnob("latencyMs", 1200), setLatency(1200);
-    if (name === "fast") setKnob("latencyMs", 90), setLatency(90);
-    if (name === "reset")
-      resetWorld(),
-        setItems(LISTINGS.slice(0, 8)),
-        setArrivals(0),
-        setLivenessBanner(""),
-        setError(null),
-        patchUrl({});
   };
 
   return (
     <div className="lv">
+      {/* Banners pinned to the viewport: tile-view scrolling never hides them. */}
+      <div className="lv-fixed">
+        {error && (
+          <div className="lv-error" role="alert">
+            <strong>Request failed:</strong> {error}{" "}
+            <button
+              onClick={() =>
+                fetchPage(
+                  page,
+                  parseFilters(new URLSearchParams(window.location.search)),
+                  "Retry"
+                )
+              }
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {arrivals > 0 && (
+          <button className="lv-arrivals" onClick={showArrivals}>
+            ▲ {arrivals} new listing{arrivals > 1 ? "s" : ""} — tap to add to top
+          </button>
+        )}
+        {livenessBanner && (
+          <div className="lv-liveness">{livenessBanner}</div>
+        )}
+      </div>
+
       <div className="lv-panel">
         <span className="lv-panel-title">⚙ fake server</span>
         <label>
@@ -240,38 +292,46 @@ export default function LivePage() {
             <option value={10000}>10 s</option>
           </select>
         </label>
+        <label>
+          request
+          <select value={reqMode} onChange={(e) => patchUrl({ req: e.target.value })}>
+            <option value="immediate">on every change</option>
+            <option value="submit">explicit submit</option>
+          </select>
+        </label>
         <button onClick={() => setAuto((a) => !a)} aria-pressed={auto}>
           {auto ? "⏸ pause stream" : "▶ resume stream"}
         </button>
         <button onClick={() => handleEvent(nextEvent())}>+ inject one event</button>
+        <button onClick={() => patchUrl({ verdict: "none" })}>
+          filter matches nothing
+        </button>
         <span className="lv-event" aria-live="polite">
           {lastEvent || "—"}
         </span>
       </div>
 
-      {error && (
-        <div className="lv-error" role="alert">
-          <strong>Request failed:</strong> {error}{" "}
-          <button onClick={() => fetchPage(page, parseFilters(new URLSearchParams(window.location.search)))}>
-            Retry
-          </button>
+      {reqMode === "submit" && (
+        <div className={`lv-submit${dirty ? " lv-dirty" : ""}`}>
+          <button onClick={onSubmit}>Apply filters</button>
+          <span className="muted">
+            {dirty
+              ? "filters changed — results on screen are stale until you click."
+              : "explicit-submit mode: nothing fetches until you click."}
+          </span>
         </div>
-      )}
-      {arrivals > 0 && (
-        <button className="lv-arrivals" onClick={showArrivals}>
-          ▲ {arrivals} new listing{arrivals > 1 ? "s" : ""} — tap to add to top
-        </button>
-      )}
-      {livenessBanner && (
-        <div className="lv-liveness">{livenessBanner}</div>
       )}
 
-      {reqMode === "submit" && (
-        <div className="lv-submit">
-          <button onClick={onSubmit}>Apply filters</button>
-          <span className="muted">explicit-submit mode: nothing fetches until you click.</span>
-        </div>
-      )}
+      <div className="lv-reqlog" aria-live="polite">
+        <strong>requests fired: {reqCount.current}</strong>
+        {reqLog.length > 0 && (
+          <ul>
+            {reqLog.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <FilterBar count={total} />
 
@@ -314,27 +374,22 @@ export default function LivePage() {
       </div>
 
       <div className="lv-scenarios">
-        <span className="lv-panel-title">⚙ scenarios</span>
-        <button onClick={() => scenario("empty")}>filter matches nothing</button>
-        <button onClick={() => scenario("err")}>force error</button>
-        <button onClick={() => scenario("flaky")}>flaky backend</button>
-        <button onClick={() => scenario("clean")}>clean backend</button>
-        <button onClick={() => scenario("slow")}>slow backend</button>
-        <button onClick={() => scenario("fast")}>fast backend</button>
+        <span className="lv-panel-title">⚙ world reset</span>
         <button
-          onClick={() => {
-            reenrich().then((r) =>
-              setLastEvent(`reenrichment requeued ${r.requeued}`)
-            );
-          }}
+          onClick={() =>
+            (
+              resetWorld(),
+              setItems(LISTINGS.slice(0, 8)),
+              setArrivals(0),
+              setLivenessBanner(""),
+              setError(null),
+              setReqLog([]),
+              (reqCount.current = 0),
+              patchUrl({})
+            )
+          }
         >
-          re-enrich all pending
-        </button>
-        <button
-          onClick={() => doReject(items[0]?.id ?? "")}
-          disabled={!items.length}
-        >
-          reject first card
+          reset fake world
         </button>
       </div>
     </div>

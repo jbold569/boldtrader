@@ -59,7 +59,7 @@ function ResultsPage() {
 function App() {
   const q = useQuery();
   const theme: Theme = q.get("theme") === "dark" ? "dark" : "light";
-  const nav = (q.get("nav") ?? "a").toLowerCase();
+  const nav = (q.get("nav") ?? "b").toLowerCase();
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);

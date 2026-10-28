@@ -82,7 +82,7 @@ export default function FilterBar({ count }: { count: number }) {
         >
           <option value="all">All</option>
           <option value="live">Live</option>
-          <option value="dead">Dead</option>
+          <option value="dead">Ended</option>
         </select>
       </div>
       <div className="fb-field">

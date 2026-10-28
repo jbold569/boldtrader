@@ -203,7 +203,7 @@ export function nextEvent(): BgEvent {
       STORE = STORE.map((r) => (r.id === victim.id ? { ...r, availability: "dead" as const } : r));
       deadCount++;
     }
-    return { event: "liveness", data: { search_id: 42, done: deadCount >= 6, dead_count: deadCount, banner: deadCount >= 3 ? "3 listings died since the last check" : "" } };
+    return { event: "liveness", data: { search_id: 42, done: deadCount >= 6, dead_count: deadCount, banner: deadCount >= 3 ? `${deadCount} listings ended since the last check` : "" } };
   }
   // step 3: a fresh inbound with its own verdict
   if (inboundIdx < INBOUND.length) {

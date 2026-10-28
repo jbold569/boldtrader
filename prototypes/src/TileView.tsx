@@ -77,7 +77,7 @@ export default function TileView({
             <div className="tl-meta">
               <span className="chip">{r.marketplace}</span>
               <span className="chip">{postedLabel(r.posted_minutes)}</span>
-              {dead && <span className="chip bad">no longer available</span>}
+              {dead && <span className="chip bad">Ended</span>}
               {r.flip_value > 0 && (
                 <span className="chip">flip value {money(r.flip_value)}</span>
               )}
