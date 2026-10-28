@@ -59,9 +59,9 @@
 }
 
 .lv-error {
-  background: var(--error-bg);
-  color: var(--error);
-  border: 1px solid var(--error);
+  background: var(--bad-bg);
+  color: var(--bad);
+  border: 1px solid var(--bad);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;

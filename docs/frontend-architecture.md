@@ -70,3 +70,149 @@ QueryClientProvider
 ## Terminology note
 
 "Enhanced view" (from the legacy `enhanced.html`) is informal speech for the Search Results view. It is not a term in the glossary and does not appear in this architecture.
+
+## Design tokens
+
+Locked decision from wayfinder ticket [#36 Design-token set for the SPA (visual language)](https://github.com/jbold569/boldtrader/issues/36). This is the single source of truth for the SPA's visual values: the CSS at the end of this section is copied verbatim into `frontend/src/styles/tokens.css` and imported once at the app root. Page components use tokens only — no raw colors or px lengths.
+
+### Color palette
+
+Every color has two hand-authored values — one per theme — toggled by the `data-theme="light|dark"` attribute on `<html>`. Nothing is computed: no `color-mix()`, no runtime derivation. Changing a color means editing both blocks together.
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--bg` | `#f5f6f8` | `#101216` | page background |
+| `--surface` | `#ffffff` | `#1a1d23` | cards, panels, inputs |
+| `--surface-2` | `#eef0f4` | `#23272f` | nested surface, progress track |
+| `--border` | `#dfe3ea` | `#2e333c` | default hairline |
+| `--border-strong` | `#c4cad6` | `#444b57` | buttons, focused borders |
+| `--fg` | `#1a1d23` | `#e6e8ec` | primary text |
+| `--muted` | `#6b7280` | `#98a0ad` | secondary text |
+| `--accent` | `#2563eb` | `#60a5fa` | primary actions, links |
+| `--on-accent` | `#ffffff` | `#ffffff` | text on accent fills |
+| `--ok` / `--ok-bg` | `#15803d` / `#e7f6ec` | `#4ade80` / `#12291c` | positive / match |
+| `--warn` / `--warn-bg` | `#b45309` / `#fdf3e3` | `#fbbf24` / `#2b2312` | caution / unsure |
+| `--bad` / `--bad-bg` | `#b91c1c` / `#fdeaea` | `#f87171` / `#2b1516` | error / negative |
+| `--neutral-bg` | `#eceef1` | `#262a31` | neutral chips, no-verdict |
+| `--scrim` | `rgba(0,0,0,.35)` | same | modal / tray backdrop |
+
+The old prototype's `--error` / `--error-bg` were never defined (the dark error banner rendered with unset values); they are folded into `--bad` / `--bad-bg`.
+
+### Spacing
+
+A 4px scale. The prototype's 6/10/14 px drift is snapped up to 8/12/16; the jump is ≤2px and visually negligible at normal density.
+
+`--space-1` 4 · `--space-2` 8 · `--space-3` 12 · `--space-4` 16 · `--space-5` 20 · `--space-6` 24 · `--space-7` 28 · `--space-8` 32 (px).
+
+### Type
+
+Five sizes, down from ten. `--text-xs` 12 · `--text-sm` 13 · `--text-base` 15 · `--text-lg` 18 · `--text-xl` 24 (px). Merges: 11→12, 12.5→13, 16/20→18. Line-height is set per component, not tokenized.
+
+### Radius
+
+`--radius-sm` 6px (buttons, inputs) · `--radius-md` 8px (cards, panels) · `--radius-pill` 99px (chips, confidence bars). Circular avatars stay `border-radius: 50%` — that's a shape, not a style value.
+
+### Elevation
+
+`--shadow-sm` cards · `--shadow-md` raised tray (upward) · `--shadow-lg` modal. The dark theme darkens `--shadow-sm` to compensate for the darker background; `--shadow-md`/`--shadow-lg` are pure-black overlays, identical in both themes.
+
+### Verdict → tone
+
+How a Sift verdict maps to a chip. Labels and the confidence threshold logic are functional values defined in `theme.tsx`, not CSS:
+
+| Verdict (wire) | Chip label | Tone |
+|---|---|---|
+| `match` | MATCH | `--ok` on `--ok-bg` |
+| `not_match` | NO | `--muted` on `--neutral-bg` |
+| `unsure` | SURE? | `--warn` on `--warn-bg` |
+| `pending` | SIFTING | `--accent` on `--surface-2` |
+
+### Usage rule
+
+- **Page components: tokens only.** No raw hex colors, no raw px for spacing, typography, or radius.
+- **Exempt — the primitives own the micro values:** base element styles (`button`, `.chip`, `.card`, input base, hairline dividers) use raw `1px` and small px paddings directly. They are what the tokens are derived from.
+- Raw values allowed nowhere else. Review checks this; mechanical enforcement (stylelint) is deferred until violations actually show up during M4–M7.
+
+```css
+/* BoldTrader SPA design tokens — single source of truth.
+   Imported once at the app root. Page components use these only; no raw
+   colors or px lengths. The dark theme is hand-authored value-for-value;
+   never computed. Change a color = edit both [light] and [dark] blocks. */
+
+:root,
+[data-theme="light"] {
+  /* palette */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #dfe3ea;
+  --border-strong: #c4cad6;
+  --fg: #1a1d23;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --on-accent: #ffffff;
+  --ok: #15803d;
+  --ok-bg: #e7f6ec;
+  --warn: #b45309;
+  --warn-bg: #fdf3e3;
+  --bad: #b91c1c;
+  --bad-bg: #fdeaea;
+  --neutral-bg: #eceef1;
+  --scrim: rgba(0, 0, 0, 0.35);
+  /* elevation */
+  --shadow-sm: 0 1px 3px rgba(20, 24, 32, 0.12);
+  --shadow-md: 0 -2px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] {
+  --bg: #101216;
+  --surface: #1a1d23;
+  --surface-2: #23272f;
+  --border: #2e333c;
+  --border-strong: #444b57;
+  --fg: #e6e8ec;
+  --muted: #98a0ad;
+  --accent: #60a5fa;
+  --on-accent: #ffffff;
+  --ok: #4ade80;
+  --ok-bg: #12291c;
+  --warn: #fbbf24;
+  --warn-bg: #2b2312;
+  --bad: #f87171;
+  --bad-bg: #2b1516;
+  --neutral-bg: #262a31;
+  --scrim: rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 -2px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Spacing: 4px steps (prototype drift 6/10/14 snapped to 8/12/16). */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+}
+
+/* Type: 5 sizes (was 10). Line-height stays per-component. */
+:root {
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+}
+
+/* Radius: 3 values (was 7). 50% circles stay border-radius: 50%. */
+:root {
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-pill: 99px;
+}
+```
