@@ -19,6 +19,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
+from . import api
 
 from . import chat as chat_mod
 from . import enhanced
@@ -26,7 +27,7 @@ from . import liveness
 from .db import get_connection, init_db
 from .ebay_scraper import EbayScraper
 from .facebook_scraper import FacebookScraper
-from .fanout import enrichment_worker, fan_out
+from .fanout import enrichment_worker, fan_out, reenrich_search
 from .marketplace import Listing, Marketplace, SearchResult
 from .offerup_scraper import OfferupScraper
 
@@ -347,6 +348,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/v1/"):
+            api.handle(self)
+            return
         if Path(parsed.path).suffix in STATIC_TYPES:
             self._serve_static(parsed.path)
             return
@@ -491,6 +495,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/v1/"):
+            api.handle(self)
+            return
         if parsed.path == "/chat":
             self._handle_chat_post()
         elif parsed.path == "/search":
@@ -503,8 +510,21 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_describe_post()
         elif parsed.path == "/delete":
             self._handle_delete_post()
+        elif parsed.path == "/reenrich":
+            self._handle_reenrich_post()
+        elif parsed.path == "/session/delete":
+            self._handle_session_delete_post()
         else:
             self._send(404, "Not found")
+
+    def do_PATCH(self) -> None:  # noqa: N802 (http.server API)
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/v1/"):
+            api.handle(self)
+        else:
+            self._send(404, "Not found")
+
+    do_DELETE = do_PATCH  # same dispatch: only /api/v1/ routes exist for these
 
     def _read_form(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -765,6 +785,46 @@ class Handler(BaseHTTPRequestHandler):
             200,
             enhanced.render_searches_page(searches, banner=f"Deleted bargain search #{sid}."),
         )
+
+    def _handle_reenrich_post(self) -> None:
+        """Re-queue a search's missing/failed enrichments and return to the list."""
+        form = self._read_form()
+        sid = (form.get("search_id") or [""])[0]
+        if not sid:
+            self._send(400, "Missing search_id")
+            return
+        conn = get_connection()
+        try:
+            n = reenrich_search(conn, int(sid))
+            searches = enhanced.list_searches(conn)
+        finally:
+            conn.close()
+        banner = (
+            f"Re-queued {n} listings for enrichment."
+            if n
+            else "Nothing to re-enrich: all listings already have enrichment."
+        )
+        self._send(
+            200,
+            enhanced.render_searches_page(searches, banner=banner, banner_cls="toast"),
+        )
+
+    def _handle_session_delete_post(self) -> None:
+        """Delete a Chat Session from the drawer; go to a fresh chat."""
+        form = self._read_form()
+        sid = (form.get("session_id") or [""])[0]
+        if not sid:
+            self._send(400, "Missing session_id")
+            return
+        conn = get_connection()
+        try:
+            chat_mod.delete_session(conn, int(sid))
+        finally:
+            conn.close()
+        self.send_response(303)
+        self.send_header("Location", "/chat?new=1")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send(self, status: int, body: str, content_type: str = "text/html") -> None:
         data = body.encode("utf-8")
