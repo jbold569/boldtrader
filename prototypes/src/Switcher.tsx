@@ -1,11 +1,10 @@
 // Floating bottom-center pill: switches nav tray variant (A/B/C), page
 // (results / search forms / chat + each page's variant A/B/C), and the
-// reasoning channel (chat only). Theme lives as a small button fixed at
-// top-right, clear of the pill and the chat input bar. Deliberately loud
-// so it reads as prototype scaffolding, not page design.
+// reasoning channel (chat only). Deliberately loud so it reads as
+// prototype scaffolding, not page design.
+// Theme toggle lives inside the tray footer (.tray-foot in trays.tsx).
 
 import { patchUrl } from "./filters";
-import { useTheme } from "./theme";
 
 const NAVS = [
   { k: "a", label: "A Drawer" },
@@ -26,7 +25,6 @@ const CHATS = [
 ];
 
 export default function Switcher() {
-  const theme = useTheme();
   const q = new URLSearchParams(window.location.search);
   const view = q.get("view") === "condensed" ? "condensed" : "tile";
   const nav = (q.get("nav") ?? "a").toLowerCase();
@@ -45,13 +43,6 @@ export default function Switcher() {
 
   return (
     <>
-      <button
-        className="sw-theme"
-        aria-label="Toggle theme"
-        onClick={() => patchUrl({ theme: theme === "dark" ? "light" : "dark" })}
-      >
-        {theme === "dark" ? "☀" : "🌙"}
-      </button>
       <div
         style={{
           position: "fixed",

@@ -1,0 +1,85 @@
+/* Chat Sessions page (#32 revision: View all → destination). Tokens from base.css. */
+
+.sp {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.sp-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  padding: 10px 0 8px;
+  z-index: 5;
+}
+
+.sp-search input {
+  flex: 1;
+  font: inherit;
+  font-size: 15px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.sp-count {
+  font-size: 13px;
+  flex: none;
+}
+
+.sp-empty {
+  text-align: center;
+  padding: 40px 12px;
+}
+
+.sp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.sp-item {
+  padding: 8px 6px;
+  border-radius: 8px;
+}
+
+.sp-item:hover {
+  background: var(--surface-2);
+}
+
+.sp-item a {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.sp-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.sp-when {
+  font-size: 12px;
+  flex: none;
+}
+
+.sp-blurb {
+  margin: 2px 0 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

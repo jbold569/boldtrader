@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import { patchUrl } from "./filters";
+import { useTheme } from "./theme";
 import "./trays.css";
 
 const NAV = [
@@ -44,6 +45,7 @@ const clamp = (v: number, lo: number, hi: number) =>
 // session: no menu icon on the grip; no Chat item in the nav — the sessions
 // list below covers it.)
 function TrayBody({ onPick }: { onPick: (dest?: string) => void }) {
+  const theme = useTheme();
   return (
     <div className="tray-body">
       <button className="tray-newchat" onClick={() => onPick("newchat")}>
@@ -82,7 +84,7 @@ function TrayBody({ onPick }: { onPick: (dest?: string) => void }) {
             href="#"
             onClick={(e) => {
               e.preventDefault();
-              patchUrl({ page: "chat" });
+              patchUrl({ page: "sessions" });
               onPick();
             }}
           >
@@ -90,6 +92,15 @@ function TrayBody({ onPick }: { onPick: (dest?: string) => void }) {
           </a>
         </li>
       </ul>
+      <div className="tray-foot">
+        <button
+          className="tray-theme"
+          aria-label="Toggle theme"
+          onClick={() => patchUrl({ theme: theme === "dark" ? "light" : "dark" })}
+        >
+          {theme === "dark" ? "☀ Light" : "🌙 Dark"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -189,7 +200,7 @@ export function TrayA({ children }: { children: ReactNode }) {
 }
 
 // ---- B: bottom sheet ----
-const PEEK_H = 46;
+const PEEK_H = 28; // must equal rendered grip height; larger exposes New Chat when hidden
 
 export function TrayB({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);

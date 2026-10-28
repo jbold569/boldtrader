@@ -19,6 +19,7 @@ import { TrayA, TrayB, TrayC } from "./trays";
 import SearchPage from "./search";
 import ChatPage from "./chat";
 import LivePage from "./live";
+import SessionsPage from "./sessions";
 import "./base.css";
 
 function useQuery() {
@@ -66,12 +67,15 @@ function App() {
   const isSearch = q.get("page") === "search";
   const isChat = q.get("page") === "chat";
   const isLive = q.get("page") === "live";
+  const isSessions = q.get("page") === "sessions";
   const page = isChat ? (
     <ChatPage
       variant={(q.get("chat") ?? "a").toLowerCase() as "a" | "b" | "c"}
     />
   ) : isLive ? (
     <LivePage />
+  ) : isSessions ? (
+    <SessionsPage />
   ) : (
     <div className="page">
       {isSearch ? (

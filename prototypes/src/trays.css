@@ -220,7 +220,7 @@
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.25);
   padding: 6px 18px 28px;
-  transform: translateY(calc(100% - 46px));
+  transform: translateY(calc(100% - 28px));
   transition: transform 0.2s ease-out;
   touch-action: pan-y;
   overscroll-behavior: contain;
@@ -324,4 +324,22 @@
   .shell-c {
     padding-bottom: 110px;
   }
+}
+
+.tray-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.tray-theme {
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.tray-theme:hover {
+  background: var(--border);
 }
