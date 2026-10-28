@@ -1,0 +1,177 @@
+/* Shared form primitives: fields, tag chips, modal (ticket #44).
+   Styles carried over from prototypes/src/search.css (variant A's one-column
+   draft) — the look that settled. */
+
+/* base primitives: the SPA ships no global reset beyond tokens.css */
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+button:active {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chip {
+  display: inline-block;
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--neutral-bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------- shared field ---------- */
+.fd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.fd-label {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  font-weight: 600;
+}
+.fd input {
+  font: inherit;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  width: 100%;
+}
+.fd input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.fd-err {
+  font-size: var(--text-xs);
+  color: var(--bad);
+}
+.fd-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* ---------- tag input ---------- */
+.tagin-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--surface);
+}
+.tagin-row input {
+  border: none;
+  flex: 1;
+  min-width: 120px;
+  padding: var(--space-1) 6px;
+  background: transparent;
+}
+.tagin-row input:focus {
+  outline: none;
+}
+.tagin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+.tagin-chip button {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+.tagin-sug {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tagin-sug button {
+  font-size: var(--text-xs);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  color: var(--accent);
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+}
+
+/* ---------- form footer ---------- */
+.sform-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* ---------- server-level warning ---------- */
+.fs-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+
+/* ---------- modal ---------- */
+.mdl-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-6) var(--space-3);
+  overflow-y: auto;
+  z-index: 200;
+}
+.mdl {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 560px;
+  box-shadow: var(--shadow-lg);
+}
+.mdl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.mdl-head h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.mdl-body {
+  padding: var(--space-4);
+}

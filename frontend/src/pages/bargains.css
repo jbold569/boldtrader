@@ -1,0 +1,70 @@
+/* Bargains list page (ticket #44). Reuses the prototype's page rhythm
+   (prototypes/src/base.css .page) and the modal/field styles in form.css. */
+
+.bargains {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-8);
+}
+.bl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.bl-head h1 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.bl-error {
+  color: var(--bad);
+}
+.bl-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.bl-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.bl-summary {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.bl-summary:hover {
+  color: var(--accent);
+}
+.bl-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+.bl-del {
+  margin-left: auto;
+  color: var(--bad);
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+}
+.bl-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+}
