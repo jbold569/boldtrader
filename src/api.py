@@ -151,6 +151,16 @@ def _load(conn, search_id: str) -> dict:
     return _resource(row)
 
 
+def get_one_search(handler, search_id: str) -> None:
+    """Read one search resource (ticket #45)."""
+    conn = get_connection()
+    try:
+        resource = _load(conn, search_id)
+    finally:
+        conn.close()
+    _send_json(handler, 200, resource)
+
+
 def _read_paging(qs: dict) -> tuple[int, int]:
     """page/per_page from the query string, clamped to the contract's bounds."""
     try:
@@ -885,6 +895,9 @@ def handle(handler) -> None:
                 return
         elif len(parts) == 4:
             search_id = parts[3]
+            if handler.command == "GET":
+                get_one_search(handler, search_id)
+                return
             if handler.command == "PATCH":
                 update_search(handler, search_id)
                 return

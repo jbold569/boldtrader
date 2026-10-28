@@ -31,6 +31,7 @@ Fixed enough that backend JSON-endpoint work proceeds regardless of framework ch
 |---|---|---|
 | GET | `/api/v1/searches` | Paginated list |
 | POST | `/api/v1/searches` | Create from draft; kicks fan-out in background |
+| GET | `/api/v1/searches/{id}` | Single search resource |
 | PATCH | `/api/v1/searches/{id}` | Partial update; bumps `version`, kicks fan-out |
 | DELETE | `/api/v1/searches/{id}` | 204 |
 

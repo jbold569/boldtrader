@@ -301,3 +301,43 @@ def test_malformed_json_body_is_400(site, fanout):
     assert "application/json" in headers.get("Content-Type", "")
     assert set(err["error"]) == {"code", "message"}
     assert fanout == []
+
+
+# --- GET /api/v1/searches/{id}: single resource (ticket #45) -----------------
+
+
+def test_get_one_returns_full_resource(site):
+    created = create(site, summary="single get")
+    status, resource, headers = call("GET", f"{site}{API}/{created['id']}")
+    assert status == 200
+    assert "application/json" in headers.get("Content-Type", "")
+    assert set(resource) == RESOURCE_KEYS
+    assert resource["id"] == created["id"]
+    assert resource["summary"] == "single get"
+
+
+def test_get_one_reflects_patch(site, fanout):
+    created = create(site)
+    call(
+        "PATCH",
+        f"{site}{API}/{created['id']}",
+        {"target_price": 111.0, "summary": "renamed"},
+    )
+    _, resource, _ = call("GET", f"{site}{API}/{created['id']}")
+    assert resource["summary"] == "renamed"
+    assert resource["target_price"] == 111.0
+    assert resource["version"] > created["version"]
+
+
+def test_get_one_missing_search_is_404(site):
+    status, err, headers = call("GET", f"{site}{API}/999")
+    assert status == 404
+    assert err["error"]["code"] == "search_not_found"
+    assert "999" in err["error"]["message"]
+    assert "application/json" in headers.get("Content-Type", "")
+
+
+def test_get_one_non_numeric_id_is_404(site):
+    status, err, _ = call("GET", f"{site}{API}/abc")
+    assert status == 404
+    assert err["error"]["code"] == "search_not_found"

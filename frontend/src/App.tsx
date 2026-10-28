@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import BargainsPage from "./pages/BargainsPage";
+import SearchResultsPage from "./pages/SearchResultsPage";
 import { applyTheme, initialTheme, toggleTheme, type Theme } from "./theme";
 
 applyTheme(initialTheme());
@@ -43,7 +44,7 @@ export default function App() {
         <Route path="/chat/:id" element={<Stub name="ChatSurface" />} />
         <Route path="/chat/sessions" element={<Stub name="SessionsPage" />} />
         <Route path="/bargains" element={<BargainsPage />} />
-        <Route path="/bargains/:id" element={<Stub name="SearchResults" />} />
+        <Route path="/bargains/:id" element={<SearchResultsPage />} />
         <Route path="/search" element={<Stub name="Search" />} />
       </Routes>
     </div>

@@ -1,0 +1,237 @@
+/* Search Results view + ResultCard (ticket #45). The look settled in
+   prototypes/src/views.css (tile variant); colors/spacing/type from
+   tokens.css only, micro 1px values on the primitives are exempt. */
+
+.sr {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-8);
+}
+/* Utility + chip variant primitives (the SPA has no global reset beyond
+   tokens.css + form.css base primitives). */
+.muted {
+  color: var(--muted);
+}
+.chip.bad {
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.sr-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.sr-head h1 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+}
+.sr-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-top: var(--space-1);
+}
+.sr-error {
+  color: var(--bad);
+}
+
+/* Liveness banner: fan-out sweep progress / completion (#45 replaces the
+   retired standalone liveness page). */
+.lv-banner {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+}
+.lv-ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+/* ---------- ResultCard ---------- */
+.rc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-3);
+}
+.rc {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* verdict → tone (#36): match→ok, not_match→neutral, unsure→warn,
+   pending→accent */
+.rc-ok {
+  border-left-color: var(--ok);
+}
+.rc-neutral {
+  border-left-color: var(--border-strong);
+}
+.rc-warn {
+  border-left-color: var(--warn);
+}
+.rc-accent {
+  border-left-color: var(--accent);
+}
+.rc-dead {
+  opacity: 0.55;
+}
+.rc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.rc-thumb {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  flex: none;
+}
+.rc-priceblock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.rc-verdict {
+  align-self: flex-start;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+}
+.rc-verdict-ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.rc-verdict-neutral {
+  background: var(--neutral-bg);
+  color: var(--muted);
+}
+.rc-verdict-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.rc-verdict-accent {
+  background: var(--surface-2);
+  color: var(--accent);
+}
+.rc-ask {
+  font-weight: 600;
+  color: var(--fg);
+}
+.rc-title {
+  font-size: var(--text-base);
+  margin: 0;
+}
+.rc-title a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.rc-title a:hover {
+  text-decoration: underline;
+}
+.rc-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Enrichment display: a section of the card, never its own page. */
+.rc-enrich {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.rc-enrich-pending {
+  color: var(--muted);
+}
+.rc-lowconf {
+  color: var(--warn);
+  margin-top: var(--space-1);
+}
+/* The user's words always win: the authored description replaces the
+   Enrichment display instead of sitting beside it. */
+.rc-authored {
+  background: var(--ok-bg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+
+.rc-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+.rc-reject {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.rc-inline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.rc-inline textarea {
+  font: inherit;
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  color: var(--fg);
+  background: var(--surface);
+}
+.rc-inline textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rc-inline-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.rc-note {
+  font-size: var(--text-sm);
+  color: var(--ok);
+}
+.rc-note-bad {
+  color: var(--bad);
+}
+
+/* Phone portrait: one card per row, thumb shrinks so the text leads. */
+@media (max-width: 700px) {
+  .rc-grid {
+    grid-template-columns: 1fr;
+  }
+  .rc-thumb {
+    width: 64px;
+    height: 64px;
+  }
+}
