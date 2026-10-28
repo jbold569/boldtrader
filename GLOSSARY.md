@@ -77,9 +77,9 @@ A specific Listing the user has saved for later, tracked over time: its price mo
 The app alerts the user when a watched Listing's price drops or it disappears.
 _Avoid_: saved search, saved listing
 
-**Locality**:
-The geographic scope of a Bargain Search: a center point and a radius. Local marketplaces are metro-scoped — a Bargain Search without a locality on a local marketplace sees nothing useful.
-_Avoid_: area, region, location
+**Location**:
+A place name (city, ZIP, metro) anchoring the geographic scope of a Search or Bargain Search. Local marketplaces are metro-scoped — a Bargain Search without a location on a local marketplace sees nothing useful.
+_Avoid_: area, region, locality
 
 **Deal threshold**:
 How far below fair price a listing must fall to count as a deal, expressed as a percentage. A global default applies to every product; the user may override it per product. Market analysis may raise the threshold where a product's observed prices are noisy, but never lower it below the floor.
@@ -108,6 +108,10 @@ _Avoid_: recycler, liquidator
 **Enrichment**:
 The AI-extracted facts added to a Listing beyond what the marketplace exposes: resolved product identity, normalized condition, and the bundle's contents as a list of additional products. Enrichment is a first draft — the user's authored description always overrides it.
 _Avoid_: AI analysis, scoring, enhancement
+
+**Re-enrichment**:
+Re-queuing a Listing whose Enrichment failed or was never recorded. A user-initiated recovery: it never overwrites existing Enrichment, and because Enrichment re-reads the listing from the Marketplace, a re-enrichment reflects current marketplace data.
+_Avoid_: retry, refresh (as a verb for this action), re-run
 
 **Sifting**:
 The first-pass judgment of whether a listing is the product a Bargain Search wants, made against the search's product identity and exclusion list. Produces a verdict of match, not_match, or unsure; unsure listings are surfaced for the human's eye rather than dropped. Sifting happens before Enrichment and is cheap per listing; a low-confidence verdict is treated as unsure.

@@ -34,29 +34,29 @@ Implement `/api/v1/` in full per `docs/api-contract.md`: searches CRUD, results 
 
 Work all five HITL prototype tickets before the pages they inform: [Chat page UX (#21)](https://github.com/jbold569/boldtrader/issues/21), [Enhanced view interaction (#22)](https://github.com/jbold569/boldtrader/issues/22), [Side-tray navigation (#32)](https://github.com/jbold569/boldtrader/issues/32), [Search / advanced search form (#33)](https://github.com/jbold569/boldtrader/issues/33), and [Search result view look-and-feel (#34)](https://github.com/jbold569/boldtrader/issues/34). They settle look-and-feel and the `reasoning`-channel surface-vs-suppress policy that #20 deferred. They run in the shared Vite app at `prototypes/` on port 10001, fake data inline, no backend. All five are gated by the firewall task [Open LAN ports 10000-10010 (#31)](https://github.com/jbold569/boldtrader/issues/31) — the opened range is deliberate; keep all dev/prototype servers inside 10000-10010. Do #31 first. Throwaway artifacts; nothing here is production code.
 
-### M4 — Searches list (`/searches`)
+### M4 — Bargain Search list (`/bargains`)
 
 Paginated list from `GET /api/v1/searches`; create modal over the list (`SearchForm` → `POST /api/v1/searches`); `search_complete` events invalidate the list query.
 
 **Exit check:** create a Bargain Search from the UI and the list updates without a manual refresh.
 
-### M5 — Search Results view (`/searches/:id`)
+### M5 — Search Results view (`/bargains/:id`)
 
 `ResultCard` grid with Sift verdict, Enrichment display, per-card actions (reject → `POST …/rejections`, author description → `PATCH /listings/{id}`, re-enrich → `POST …/reenrichment`); filter bar (verdict / max_price / availability / sort / page) synced to URL query params; liveness banner from `GET …/liveness` plus `liveness` event invalidation; edit modal (`PATCH /api/v1/searches/{id}`).
 
 **Exit check:** a filter change round-trips through the URL (survives reload and back/forward); an enrichment arrival live-updates a card without reload.
 
-### M6 — Ad-hoc Marketplace Search (`/find`)
+### M6 — Ad-hoc Marketplace Search (`/search`)
 
 Query form + `ListingCard` grid + `failed_marketplaces` banner. Params in URL per architecture.
 
 **Exit check:** a `marketplace=all` search with one marketplace failing shows the banner and still renders items.
 
-### M7 — Chat surface (`/`, `/chat/:id`)
+### M7 — Chat surface (`/`, `/chat/:id`, `/chat/sessions`)
 
-Session sidebar (`GET /api/v1/chat/sessions`), conversation component with the turn-stream reducer (spec below), inline draft-confirm (a `draft` event renders the same `SearchForm` pre-filled → save = `POST /api/v1/searches`), stop/regenerate.
+Session sidebar (`GET /api/v1/chat/sessions`), Chat Sessions page (`/chat/sessions`: all sessions + fuzzy search, per the #32 revision), conversation component with the turn-stream reducer (spec below), inline draft-confirm (a `draft` event renders the same `SearchForm` pre-filled → save = `POST /api/v1/searches`), stop/regenerate.
 
-**Exit check:** a streamed turn containing a tool call renders correctly; a draft produced mid-conversation saves and the new search appears in `/searches`.
+**Exit check:** a streamed turn containing a tool call renders correctly; a draft produced mid-conversation saves and the new search appears in `/bargains`.
 
 ### M8 — Cutover
 
