@@ -1,6 +1,7 @@
 // Floating bottom-center pill: switches nav tray variant (A/B/C), page
-// (results / search forms + form variant A/B/C), and theme. Deliberately
-// loud so it reads as prototype scaffolding, not page design.
+// (results / search forms / chat + each page's variant A/B/C), the reasoning
+// channel (chat only), and theme. Deliberately loud so it reads as prototype
+// scaffolding, not page design.
 
 import { patchUrl } from "./filters";
 import { useTheme } from "./theme";
@@ -17,15 +18,29 @@ const FORMS = [
   { k: "c", label: "C Wizard" },
 ];
 
+const CHATS = [
+  { k: "a", label: "A Waterfall" },
+  { k: "b", label: "B Status Rail" },
+  { k: "c", label: "C Inspector" },
+];
+
 export default function Switcher() {
   const theme = useTheme();
   const q = new URLSearchParams(window.location.search);
   const view = q.get("view") === "condensed" ? "condensed" : "tile";
   const nav = (q.get("nav") ?? "a").toLowerCase();
   const idx = Math.max(0, NAVS.findIndex((n) => n.k === nav));
-  const isSearch = q.get("page") === "search";
+  const page = q.get("page") ?? "results";
+  const isSearch = page === "search";
+  const isChat = page === "chat";
   const form = (q.get("form") ?? "a").toLowerCase();
   const fidx = Math.max(0, FORMS.findIndex((f) => f.k === form));
+  const chat = (q.get("chat") ?? "a").toLowerCase();
+  const cidx = Math.max(0, CHATS.findIndex((c) => c.k === chat));
+  const showReason = q.get("reason") !== "hide";
+
+  const cycle = (key: string, list: { k: string }[], cur: number, dir: 1 | -1) =>
+    patchUrl({ [key]: list[(cur + dir + list.length) % list.length].k });
 
   return (
     <div
@@ -49,39 +64,51 @@ export default function Switcher() {
     >
       <button
         aria-label="Previous nav variant"
-        onClick={() =>
-          patchUrl({ nav: NAVS[(idx - 1 + NAVS.length) % NAVS.length].k })
-        }
+        onClick={() => cycle("nav", NAVS, idx, -1)}
       >
         ◀
       </button>
       <span style={{ fontWeight: 700 }}>🧭 {NAVS[idx].label}</span>
       <button
         aria-label="Next nav variant"
-        onClick={() => patchUrl({ nav: NAVS[(idx + 1) % NAVS.length].k })}
+        onClick={() => cycle("nav", NAVS, idx, 1)}
       >
         ▶
       </button>
       <span style={{ opacity: 0.4 }}>|</span>
-      {isSearch ? (
+      {isChat ? (
         <>
-          <button
-            aria-label="Previous form variant"
-            onClick={() =>
-              patchUrl({ form: FORMS[(fidx - 1 + FORMS.length) % FORMS.length].k })
-            }
-          >
+          <button aria-label="Previous chat variant" onClick={() => cycle("chat", CHATS, cidx, -1)}>
+            ◀
+          </button>
+          <span style={{ fontWeight: 700 }}>💬 {CHATS[cidx].label}</span>
+          <button aria-label="Next chat variant" onClick={() => cycle("chat", CHATS, cidx, 1)}>
+            ▶
+          </button>
+          <button onClick={() => patchUrl({ reason: showReason ? "hide" : "show" })}>
+            🧠 {showReason ? "shown" : "hidden"}
+          </button>
+          <button onClick={() => patchUrl({ page: "results", chat: null })}>
+            ≣ Results
+          </button>
+          <button onClick={() => patchUrl({ page: "search", chat: null, form: "a" })}>
+            🔍 Forms
+          </button>
+        </>
+      ) : isSearch ? (
+        <>
+          <button aria-label="Previous form variant" onClick={() => cycle("form", FORMS, fidx, -1)}>
             ◀
           </button>
           <span style={{ fontWeight: 700 }}>🔍 {FORMS[fidx].label}</span>
-          <button
-            aria-label="Next form variant"
-            onClick={() => patchUrl({ form: FORMS[(fidx + 1) % FORMS.length].k })}
-          >
+          <button aria-label="Next form variant" onClick={() => cycle("form", FORMS, fidx, 1)}>
             ▶
           </button>
           <button onClick={() => patchUrl({ page: "results", form: null })}>
             ≣ Results
+          </button>
+          <button onClick={() => patchUrl({ page: "chat", chat: "a" })}>
+            💬 Chat
           </button>
         </>
       ) : (
@@ -100,6 +127,9 @@ export default function Switcher() {
           </button>
           <button onClick={() => patchUrl({ page: "search", form: "a" })}>
             🔍 Search forms
+          </button>
+          <button onClick={() => patchUrl({ page: "chat", chat: "a" })}>
+            💬 Chat
           </button>
         </>
       )}

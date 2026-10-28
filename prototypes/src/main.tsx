@@ -2,6 +2,7 @@
 //   #34 results look-and-feel: `?view=tile|condensed`
 //   #32 side-tray navigation:  `?nav=a|b|c`
 //   #33 search forms:          `?page=search&form=a|b|c`
+//   #21 chat page UX:          `?page=chat&chat=a|b|c&reason=show|hide`
 // Light/dark everywhere via `?theme=light|dark`. Fake data inline; no backend.
 
 import { useEffect, useState } from "react";
@@ -15,6 +16,7 @@ import CondensedView from "./CondensedView";
 import Switcher from "./Switcher";
 import { TrayA, TrayB, TrayC } from "./trays";
 import SearchPage from "./search";
+import ChatPage from "./chat";
 import "./base.css";
 
 function useQuery() {
@@ -60,7 +62,12 @@ function App() {
   }, [theme]);
 
   const isSearch = q.get("page") === "search";
-  const page = (
+  const isChat = q.get("page") === "chat";
+  const page = isChat ? (
+    <ChatPage
+      variant={(q.get("chat") ?? "a").toLowerCase() as "a" | "b" | "c"}
+    />
+  ) : (
     <div className="page">
       {isSearch ? (
         <SearchPage

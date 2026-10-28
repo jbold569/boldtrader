@@ -1,0 +1,356 @@
+/* Chat page prototype styles (#21). Light/dark via base.css tokens. */
+
+/* ---------- shared: transcript ---------- */
+.ct-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  scroll-behavior: smooth;
+}
+.ct-msg {
+  margin-bottom: 14px;
+  max-width: 720px;
+}
+.ct-user {
+  margin-left: auto;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 14px 14px 4px 14px;
+  padding: 8px 12px;
+  width: fit-content;
+  max-width: 80%;
+  font-size: 15px;
+}
+.ct-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+/* thinking block (collapsible) */
+.ct-think {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.ct-think > summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+}
+.ct-think > summary::before {
+  content: "🧠 ";
+}
+.ct-think-body {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-style: italic;
+  border-top: 1px dashed var(--border);
+  white-space: pre-wrap;
+}
+/* live shimmer while still streaming reasoning */
+.ct-think-live summary::after {
+  content: " …";
+  animation: ct-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ct-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* tool chips (inline in the turn) */
+.ct-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.ct-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  width: fit-content;
+}
+.ct-chip-run {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ct-chip-run .ct-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: ct-pulse 1s ease-in-out infinite;
+}
+.ct-chip-done {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-bg);
+}
+.ct-chip-fail {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: var(--bad-bg);
+}
+
+/* caret while content streams */
+.ct-caret::after {
+  content: "▋";
+  color: var(--accent);
+  animation: ct-blink 1s steps(1) infinite;
+  margin-left: 1px;
+}
+@keyframes ct-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+
+/* draft card inside the chat */
+.ct-draft {
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px;
+  margin: 8px 0;
+}
+.ct-draft h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.ct-draft-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.ct-draft-row {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+  margin: 4px 0;
+}
+.ct-draft-row .k {
+  color: var(--muted);
+  width: 120px;
+  flex: none;
+}
+.ct-draft-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+.ct-draft-edit {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ct-draft-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.ct-draft-edit input {
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.ct-saved {
+  color: var(--ok);
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+/* error strip */
+.ct-error {
+  border: 1px solid var(--bad);
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* composer */
+.ct-composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.ct-composer textarea {
+  flex: 1;
+  resize: none;
+  font-size: 15px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 42px;
+  max-height: 140px;
+  font-family: inherit;
+}
+.ct-stop {
+  color: var(--bad) !important;
+  border-color: var(--bad) !important;
+}
+
+/* ---------- VARIANT A: classic waterfall ---------- */
+/* single scrolling column; every event lands in the stream at its own place.
+   One page, linear. See chatA.tsx header for the take. */
+.va-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.va-tail {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 0 12px;
+}
+
+/* ---------- VARIANT B: status rail on top ---------- */
+/* All turn machinery (tools, thinking) lives in a fixed header rail ABOVE the
+   transcript, not in the stream. The stream stays clean prose. */
+.vb-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.vb-rail {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  min-height: 44px;
+  flex: none;
+}
+.vb-rail-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex: none;
+}
+.vb-thinking-strip {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  background: var(--surface);
+  border-bottom: 1px dashed var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+
+/* ---------- VARIANT C: inspector side panel ---------- */
+/* The transcript is the foreground; all machinery lives in a right-hand
+   inspector that auto-expands on interesting events. Desktop-biased. */
+.vc-wrap {
+  display: flex;
+  height: 100%;
+  gap: 0;
+}
+.vc-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vc-panel {
+  width: 300px;
+  flex: none;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+  padding: 10px;
+}
+.vc-panel h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.vc-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.vc-card-running { border-color: var(--accent); }
+.vc-card-done { border-color: var(--ok); }
+.vc-toggle-panel {
+  display: none;
+}
+@media (max-width: 767px) {
+  .vc-panel {
+    display: none;
+  }
+  .vc-panel.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: auto;
+    z-index: 250;
+  }
+  .vc-toggle-panel {
+    display: inline-flex;
+  }
+}
+
+/* scenario picker for all variants */
+.ct-scenarios {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ct-scenarios button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+}
+.ct-scenarios button.on {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
