@@ -153,6 +153,9 @@ export default function Switcher() {
             <button onClick={() => patchUrl({ page: "search", form: "a" })}>
               🔍 Search forms
             </button>
+            <button onClick={() => patchUrl({ page: "live", view: "tile" })}>
+              📡 Live
+            </button>
             <button onClick={() => patchUrl({ page: "chat", chat: "a" })}>
               💬 Chat
             </button>

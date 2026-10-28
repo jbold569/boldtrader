@@ -3,6 +3,7 @@
 //   #32 side-tray navigation:  `?nav=a|b|c`
 //   #33 search forms:          `?page=search&form=a|b|c`
 //   #21 chat page UX:          `?page=chat&chat=a|b|c&reason=show|hide`
+//   #22 live interactions:     `?page=live` (mock server; `req=immediate|submit&debounce=ms`)
 // Light/dark everywhere via `?theme=light|dark`. Fake data inline; no backend.
 
 import { useEffect, useState } from "react";
@@ -17,6 +18,7 @@ import Switcher from "./Switcher";
 import { TrayA, TrayB, TrayC } from "./trays";
 import SearchPage from "./search";
 import ChatPage from "./chat";
+import LivePage from "./live";
 import "./base.css";
 
 function useQuery() {
@@ -63,10 +65,13 @@ function App() {
 
   const isSearch = q.get("page") === "search";
   const isChat = q.get("page") === "chat";
+  const isLive = q.get("page") === "live";
   const page = isChat ? (
     <ChatPage
       variant={(q.get("chat") ?? "a").toLowerCase() as "a" | "b" | "c"}
     />
+  ) : isLive ? (
+    <LivePage />
   ) : (
     <div className="page">
       {isSearch ? (
