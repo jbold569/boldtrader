@@ -1,0 +1,123 @@
+/* Ad-hoc Marketplace Search page + ListingCard (ticket #48). The look
+   settled in prototypes/src/search.tsx variant A: one horizontal row of
+   Search · Marketplace · Location · button, raw cards inline beneath.
+   Colors/spacing/type from tokens.css only. */
+
+.as {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-8);
+}
+
+/* ---------- one-row form ---------- */
+.as-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: var(--space-3);
+  align-items: end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.as-row .fd {
+  margin-bottom: 0;
+}
+.as-row select {
+  font: inherit;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  width: 100%;
+}
+.as-row select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.as-go {
+  height: 38px;
+}
+
+/* ---------- results ---------- */
+.as-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+}
+.as-count {
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+.as-error {
+  color: var(--bad);
+}
+.as-empty {
+  padding: var(--space-6) 0;
+}
+
+/* ---------- ListingCard grid ---------- */
+.lc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+.lc {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.lc-thumb {
+  aspect-ratio: 1;
+  overflow: hidden;
+}
+.lc-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.lc-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  padding: var(--space-2) 10px 2px;
+  line-height: 1.3;
+  margin: 0;
+}
+.lc-title a {
+  color: var(--fg);
+}
+.lc-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) 10px 10px;
+  font-size: var(--text-base);
+}
+
+/* ---------- pager ---------- */
+.as-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* Phone portrait: the row stacks to one column (prototype's 700px
+   collapse); inputs/button go full width. */
+@media (max-width: 700px) {
+  .as-row {
+    grid-template-columns: 1fr;
+  }
+  .as-go {
+    height: auto;
+  }
+}

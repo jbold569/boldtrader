@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, Route, Routes } from "react-router-dom";
+import AdhocSearchPage from "./pages/AdhocSearchPage";
 import BargainsPage from "./pages/BargainsPage";
 import SearchResultsPage from "./pages/SearchResultsPage";
 import { applyTheme, initialTheme, toggleTheme, type Theme } from "./theme";
@@ -45,7 +46,7 @@ export default function App() {
         <Route path="/chat/sessions" element={<Stub name="SessionsPage" />} />
         <Route path="/bargains" element={<BargainsPage />} />
         <Route path="/bargains/:id" element={<SearchResultsPage />} />
-        <Route path="/search" element={<Stub name="Search" />} />
+        <Route path="/search" element={<AdhocSearchPage />} />
       </Routes>
     </div>
   );
