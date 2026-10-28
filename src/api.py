@@ -640,12 +640,15 @@ def delete_chat_session(session_id: str) -> None:
             raise ApiError(
                 404, "chat_session_not_found", f"No chat session with id {session_id}"
             )
-        cur = conn.execute("DELETE FROM chat_sessions WHERE id=?", (key,))
-        if cur.rowcount == 0:
+        # Children first: session_messages has a FK to chat_sessions and
+        # enforcement is on, so deleting the parent first raises.
+        cur = conn.execute("SELECT 1 FROM chat_sessions WHERE id=?", (key,))
+        if cur.fetchone() is None:
             raise ApiError(
                 404, "chat_session_not_found", f"No chat session with id {session_id}"
             )
         conn.execute("DELETE FROM session_messages WHERE chat_session_id=?", (key,))
+        conn.execute("DELETE FROM chat_sessions WHERE id=?", (key,))
         conn.commit()
     finally:
         conn.close()

@@ -1,0 +1,245 @@
+/* Chat surface (ticket #49) — #21 Variant B work-log layout.
+   All values are design tokens; no raw colors or px outside base primitives. */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ct-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ct-msg {
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ct-user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  white-space: pre-wrap;
+  font-size: var(--text-base);
+}
+
+.ct-role {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Tool chips stream into the agent message ahead of the prose. */
+.ct-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ct-chip {
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ct-chip-run {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.ct-chip-done {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.ct-chip-fail {
+  border-color: var(--bad);
+  color: var(--bad);
+  background: var(--bad-bg);
+}
+
+.ct-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ct-pulse 1s ease-in-out infinite;
+}
+
+/* The "thinking…" churn spinner covers the gap before any text arrives. */
+.ct-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+.ct-caret::after {
+  content: "▋";
+  color: var(--accent);
+  animation: ct-blink 1s step-end infinite;
+  margin-left: 2px;
+}
+
+.ct-text {
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.ct-text p {
+  margin: 0 0 var(--space-2);
+}
+
+.ct-text p:last-child {
+  margin-bottom: 0;
+}
+
+.ct-text code {
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.ct-text pre {
+  background: var(--surface-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 0 0 var(--space-2);
+}
+
+.ct-text pre code {
+  background: none;
+  padding: 0;
+}
+
+.ct-text a {
+  color: var(--accent);
+}
+
+.ct-error {
+  border: 1px solid var(--bad);
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ct-regen {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.ct-regen:hover {
+  background: var(--surface-2);
+}
+
+.ct-composer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.ct-composer textarea {
+  flex: 1;
+  resize: none;
+  min-height: 44px;
+  max-height: 160px;
+  font: inherit;
+  font-size: var(--text-base);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.ct-composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ct-send,
+.ct-stop {
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.ct-send {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ct-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ct-stop {
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+@keyframes ct-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ct-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}

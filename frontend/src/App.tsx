@@ -1,53 +1,40 @@
 import { useState } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import AdhocSearchPage from "./pages/AdhocSearchPage";
 import BargainsPage from "./pages/BargainsPage";
+import ChatSurface from "./pages/ChatSurface";
 import SearchResultsPage from "./pages/SearchResultsPage";
+import SessionsPage from "./pages/SessionsPage";
+import Tray from "./components/Tray";
 import { applyTheme, initialTheme, toggleTheme, type Theme } from "./theme";
+import { loadViewed, markViewed, type ViewedMap } from "./unread";
 
 applyTheme(initialTheme());
 
-function Stub({ name }: { name: string }) {
-  return (
-    <section style={{ padding: "var(--space-4)" }}>
-      <h1 style={{ fontSize: "var(--text-xl)", color: "var(--fg)" }}>{name}</h1>
-      <p style={{ color: "var(--muted)" }}>stub — built in a later increment</p>
-    </section>
-  );
-}
-
 export default function App() {
   const [theme, setTheme] = useState<Theme>(() => initialTheme());
+  const [viewed, setViewed] = useState<ViewedMap>(() => loadViewed());
+
+  const onViewed = (sessionId: number | string) => {
+    setViewed(markViewed(viewed, sessionId));
+  };
+
+  const onToggleTheme = () => setTheme(toggleTheme(theme));
+
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
-      <nav
-        style={{
-          display: "flex",
-          gap: "var(--space-3)",
-          padding: "var(--space-2) var(--space-4)",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--surface)",
-        }}
-      >
-        <Link to="/">Chat</Link>
-        <Link to="/chat/sessions">Sessions</Link>
-        <Link to="/bargains">Bargains</Link>
-        <Link to="/search">Search</Link>
-        <button
-          onClick={() => setTheme(toggleTheme(theme))}
-          aria-label={`switch to ${theme === "dark" ? "light" : "dark"} theme`}
-        >
-          {theme === "dark" ? "light" : "dark"}
-        </button>
-      </nav>
-      <Routes>
-        <Route path="/" element={<Stub name="ChatSurface" />} />
-        <Route path="/chat/:id" element={<Stub name="ChatSurface" />} />
-        <Route path="/chat/sessions" element={<Stub name="SessionsPage" />} />
-        <Route path="/bargains" element={<BargainsPage />} />
-        <Route path="/bargains/:id" element={<SearchResultsPage />} />
-        <Route path="/search" element={<AdhocSearchPage />} />
-      </Routes>
+    <div className="app-shell">
+      <Tray theme={theme} onToggleTheme={onToggleTheme} viewed={viewed} />
+      <main className="page-content" style={{ flex: 1, minWidth: 0, height: "100%" }}>
+        <Routes>
+          <Route path="/" element={<ChatSurface viewed={viewed} onViewed={onViewed} />} />
+          <Route path="/chat/:id" element={<ChatSurface viewed={viewed} onViewed={onViewed} />} />
+          <Route path="/chat/sessions" element={<SessionsPage />} />
+          <Route path="/bargains" element={<BargainsPage />} />
+          <Route path="/bargains/:id" element={<SearchResultsPage />} />
+          <Route path="/search" element={<AdhocSearchPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
     </div>
   );
 }
