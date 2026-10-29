@@ -12,6 +12,7 @@ response is on the wire, exactly as the legacy /confirm and /search paths do.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import threading
 from urllib.parse import parse_qs, urlparse
@@ -814,12 +815,18 @@ def stream_turn(handler, session_id: str) -> None:
         )
     except (BrokenPipeError, ConnectionResetError):
         pass  # client hung up; the DB holds the durable state
-    except Exception as exc:
+    except Exception:
+        # The raw exception (urllib3 dumps) goes to the log, not the chat:
+        # the user sees one human sentence + the Regenerate affordance.
+        logging.getLogger(__name__).exception("chat turn failed")
         try:
             _sse(
                 handler,
                 "error",
-                {"code": "router_error", "message": f"Model call failed: {exc}"},
+                {
+                    "code": "router_error",
+                    "message": "The model router (model.boldhalo.home) failed to respond. Check the router, then press Regenerate.",
+                },
             )
         except (BrokenPipeError, ConnectionResetError):
             pass
