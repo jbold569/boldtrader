@@ -1,0 +1,58 @@
+/* Draft → Bargain Search card (ticket #50), inline in the chat work-log. */
+
+.dr-card {
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dr-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dr-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.dr-discard {
+  font-size: var(--text-sm);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.dr-discard:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.dr-saved {
+  color: var(--ok);
+}
+
+.dr-saved a {
+  color: var(--accent);
+}
+
+.dr-discarded {
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}

@@ -3,6 +3,7 @@
 // owns I/O: streaming turns, stop (client-side abort), regenerate, and
 // recovery (a dead stream re-GETs the persisted session; no replay).
 
+import DraftCard, { draftKey } from "../components/DraftCard";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ import {
   getChatSession,
   streamChatTurn,
 } from "../api/client";
-import type { ChatMessage } from "../api/types";
+import type { ChatMessage, Draft, Search } from "../api/types";
 import {
   clearError,
   emptyTurn,
@@ -153,6 +154,10 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
+  // Draft disposition keyed by draft content, so a card's saved/discarded
+  // state survives the pending → committed re-render (ticket #50).
+  const [savedDrafts, setSavedDrafts] = useState<Record<string, Search>>({});
+  const [discardedDrafts, setDiscardedDrafts] = useState<Record<string, boolean>>({});
 
   const sessionIdRef = useRef<number | null>(null);
   const lastUserRef = useRef<string>("");
@@ -191,6 +196,8 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
       lastUserRef.current = "";
       setTurn(emptyTurn());
       setFatal(null);
+      setSavedDrafts({});
+      setDiscardedDrafts({});
     }
   }, [id, loadSession]);
 
@@ -277,6 +284,22 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
 
   const hasLiveOutput = turn.pending.text !== "" || turn.pending.toolCalls.length > 0;
 
+  // One draft → one confirm card, keyed by content so the same proposal
+  // keeps its saved/discarded face whether it's still pending or committed.
+  const renderDraft = (raw: unknown) => {
+    const k = draftKey(raw as Draft);
+    return (
+      <DraftCard
+        key={k}
+        draft={raw as Draft}
+        saved={savedDrafts[k]}
+        discarded={discardedDrafts[k]}
+        onSaved={(s) => setSavedDrafts((p) => ({ ...p, [k]: s }))}
+        onDiscard={() => setDiscardedDrafts((p) => ({ ...p, [k]: true }))}
+      />
+    );
+  };
+
   return (
     <div className="chat">
       <div className="ct-scroll" ref={scrollRef}>
@@ -290,6 +313,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
               <div className="ct-role">Agent</div>
               {m.toolCalls && m.toolCalls.length > 0 && <ChipRow chips={m.toolCalls} />}
               <div className="ct-text">{renderMd(m.content)}</div>
+              {m.draft ? renderDraft(m.draft) : null}
               {i === turn.messages.length - 1 && (
                 <div>
                   <button className="ct-regen" onClick={() => void regenerate()}>
@@ -312,6 +336,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
                 <span className="ct-dot" /> thinking…
               </div>
             )}
+            {turn.pending.draft ? renderDraft(turn.pending.draft) : null}
           </div>
         )}
 
