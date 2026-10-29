@@ -1,9 +1,9 @@
 """Liveness: whether a Listing is still buyable on its marketplace right now.
 
 Sold or deleted listings stay visible on the board, labelled "no longer
-available". The check runs as a background sweep kicked off each time the
-enhanced view (/search) loads, so the page itself never waits on the
-marketplaces.
+available". The check runs as a background sweep kicked off the first time
+a board is opened (GET /api/v1/searches/{id}/liveness), so the page
+itself never waits on the marketplaces.
 
 Per-marketplace signals (verified live 2026-10-25):
   facebook  live    final URL is still the item URL and og:description present
@@ -45,6 +45,12 @@ def start(search_id: int) -> None:
             return  # a sweep is already running for this search
         _active[search_id] = {"done": False, "banner": ""}
     threading.Thread(target=_sweep, args=(search_id,), daemon=True).start()
+
+
+def kicked(search_id: int) -> bool:
+    """Has a sweep ever been recorded for this search in this process?"""
+    with _lock:
+        return search_id in _active
 
 
 def status(search_id: int) -> dict:

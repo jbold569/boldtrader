@@ -19,7 +19,7 @@ import sqlite3
 import threading
 import time
 
-from . import events, router
+from . import events, liveness, router
 
 from .db import get_connection
 from .marketplace import Listing, Marketplace
@@ -45,10 +45,9 @@ def fan_out(
 ) -> None:
     """Run every query across every marketplace; persist + sift new listings.
 
-    One thread per marketplace (same tolerance pattern as _search_all): a
-    single marketplace failing is a note, not an error. Match/unsure listings
-    are queued for enrichment and tracked in the search's listing_ids (the
-    progress denominator).
+    One thread per marketplace: a single marketplace failing is a note,
+    not an error. Match/unsure listings are queued for enrichment and
+    tracked in the search's listing_ids (the progress denominator).
     """
     conn = get_connection()
     try:
@@ -135,6 +134,7 @@ def fan_out(
             events.publish(
                 "search_complete", {"search_id": search_id, "match_count": 0}
             )
+        liveness.start(search_id)
     finally:
         conn.close()
 

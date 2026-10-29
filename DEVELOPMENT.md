@@ -23,8 +23,9 @@ BoldTrader dev server:
 .venv/bin/python -m src.server --port 10000
 ```
 
-The liveness sweep (labels sold/deleted listings "no longer available") starts
-automatically when `/search?id=N` is opened and runs in a background thread.
+The liveness sweep (labels sold/deleted listings "no longer available") is
+kicked off the first time a board is opened (`/bargains/:id`, which polls
+`GET /api/v1/searches/{id}/liveness`) and runs in a background thread.
 
 ## Model router
 

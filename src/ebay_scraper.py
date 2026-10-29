@@ -27,6 +27,8 @@ _HEADERS = {
 
 _PRICE_RE = re.compile(r"\$?\s*([\d,]+(?:\.\d{1,2})?)")
 _COUNT_RE = re.compile(r"([\d,]+)\s*\+?\s*results")
+# eBay bakes this SEO suffix into every search-result title.
+_TITLE_NOISE_RE = re.compile(r"\s*opens in a new window or tab\s*$", re.IGNORECASE)
 
 
 def _parse_price(text: str) -> float | None:
@@ -158,7 +160,7 @@ class EbayScraper(Marketplace):
 
         return Listing(
             id=card.get("data-listingid") or url,
-            title=title_el.get_text(" ", strip=True),
+            title=_TITLE_NOISE_RE.sub("", title_el.get_text(" ", strip=True)),
             price=price,
             condition=condition,
             sold_count=sold_count,

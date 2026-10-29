@@ -10,19 +10,19 @@ The core idea: a **deal** is a listing whose *effective price* (out-the-door pri
 python -m venv .venv
 .venv/bin/pip install requests beautifulsoup4 playwright
 .venv/bin/playwright install chromium   # for OfferUp/Facebook scraping
-.venv/bin/python -m src.server [--port 8000]
+cd frontend && npm install && npm run build && cd ..
+.venv/bin/python -m src.server --port 10000
 ```
 
-- Search UI: `http://localhost:8000/search?q=dell+desktop&loc=Kenmore&m=all` (`m`: `all|offerup|facebook`); the Advanced form on that page creates a Bargain Search directly
-- Chat: `http://localhost:8000/chat` (resumes the latest session; `/chat?id=N` opens a specific one)
+Open `http://localhost:10000/` — the React SPA handles routing: `/chat` (bargain-search authoring), `/bargains` (saved searches), `/bargains/:id` (results with filters), `/search` (ad-hoc). Python serves only `/api/v1/*` (JSON API, `docs/api-contract.md`), the built assets, and the SPA fallback. Dev: run Vite on `:10001` (`cd frontend && npm run dev`); it proxies `/api/*` to `:10000`.
 
 State lives in `boldtrader.db` (SQLite, git-ignored). Local-only model inference; see `docs/adr/0006`.
 
 ## Layout
 
 ```
-src/            Python app: server, routers, marketplace scrapers, enrichment
-src/templates/  HTML templates
+src/            Python app: API server, marketplace scrapers, enrichment
+frontend/       React SPA (Vite; builds to frontend/dist/)
 docs/adr/       Architecture decision records
 docs/agents/    Agent skill configuration (issue tracker, triage, domain)
 GLOSSARY.md     Domain vocabulary — the app's language; read before contributing

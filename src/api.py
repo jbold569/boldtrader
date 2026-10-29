@@ -525,19 +525,28 @@ def create_reenrichment(handler, search_id: str) -> None:
 
 
 def get_liveness(handler, search_id: str) -> None:
-    """Liveness snapshot for one search: {done, banner, dead}."""
+    """Liveness snapshot for one search: {done, banner, dead}.
+
+    The first GET of a search that has listings kicks the background sweep
+    (the legacy /search page load used to do this); later GETs and searches
+    with nothing on the board never re-kick.
+    """
     try:
         key = int(search_id)
     except (TypeError, ValueError):
         raise ApiError(404, "search_not_found", f"No bargain search with id {search_id}")
     conn = get_connection()
     try:
-        if conn.execute(
-            "SELECT 1 FROM bargain_searches WHERE id=?", (key,)
-        ).fetchone() is None:
+        row = conn.execute(
+            "SELECT listing_ids FROM bargain_searches WHERE id=?", (key,)
+        ).fetchone()
+        if row is None:
             raise ApiError(404, "search_not_found", f"No bargain search with id {search_id}")
+        has_listings = bool(json.loads(row[0] or "{}"))
     finally:
         conn.close()
+    if has_listings and not liveness.kicked(key):
+        liveness.start(key)
     _send_json(handler, 200, liveness.status(key))
 
 

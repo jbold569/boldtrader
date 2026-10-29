@@ -1,37 +1,22 @@
 """Tests for Chat Session core (ticket #8).
 
-Seams: chat session persistence + title generation (chat.py), the chat turn
-loop with scripted FakeLLM turns, and route-level resume / specific-session
-behavior against a live HTTP server on an ephemeral port with a temp DB.
-The network is never touched: every model call and the fan-out are faked.
+Seams: chat session persistence + title generation (chat.py) and the chat
+turn loop with scripted FakeLLM turns, against a temp DB. The network is
+never touched: every model call is faked.
+
+Ticket #51 (M8) deleted the route-level tests in this file: they exercised
+the legacy server-rendered /chat and /confirm pages. The JSON-API equivalents
+live in tests/test_api_chat.py.
 """
 
 from __future__ import annotations
 
 import copy
-import json
 import os
-import sqlite3
-import threading
-import time
-import urllib.error
-import urllib.request
-from http.server import ThreadingHTTPServer
-from urllib.parse import urlencode
 
 import pytest
 
 from src.db import init_db
-
-DRAFT = {
-    "summary": "HP Z440 workstations, complete, <= $200",
-    "product_identity": "HP Z440 workstation",
-    "queries": ["HP Z440", "used HP Z440"],
-    "exclusions": ["parts only"],
-    "target_price": 200,
-    "location": "Kenmore, WA",
-}
-DRAFT_TEXT = "Settled then.\n\n```json\n" + json.dumps(DRAFT) + "\n```"
 
 LONG_MESSAGE = "I have been looking around for a good used workstation lately and wonder what is out there"
 
@@ -63,36 +48,6 @@ def db(tmp_path, monkeypatch):
     conn = init_db(path)
     yield conn
     conn.close()
-
-
-@pytest.fixture
-def site(tmp_path, monkeypatch):
-    """Live server on an ephemeral port with a temp DB and no real marketplaces."""
-    path = tmp_path / "site.db"
-    monkeypatch.setenv("BOLDTRADER_DB", str(path))
-    init_db(path).close()
-
-    from src import server as server_mod
-
-    server_mod.Handler.marketplaces = {}
-    server_mod.Handler.fanout_marketplaces = {}
-    server_mod.Handler.default_market = "all"
-    server_mod.Handler.cache = server_mod._Cache(60)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server_mod.Handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{httpd.server_address[1]}"
-    httpd.shutdown()
-
-
-def get(url: str) -> tuple[int, str]:
-    with urllib.request.urlopen(url) as resp:
-        return resp.status, resp.read().decode("utf-8")
-
-
-def post(url: str, form: dict) -> tuple[int, str]:
-    req = urllib.request.Request(url, data=urlencode(form).encode("utf-8"))
-    with urllib.request.urlopen(req) as resp:
-        return resp.status, resp.read().decode("utf-8")
 
 
 # --- session persistence -----------------------------------------------------
@@ -173,6 +128,7 @@ def test_generate_title_falls_back_on_empty(monkeypatch):
 
     assert chat_mod.generate_title(LONG_MESSAGE) == LONG_MESSAGE[:40]
 
+
 def test_system_prompt_is_generic_analysis_role():
     from src import chat as chat_mod
 
@@ -240,158 +196,6 @@ def test_user_row_persisted_even_when_model_fails(db, monkeypatch):
     assert saved == [{"role": "user", "content": "hello there"}]
 
 
-def test_get_chat_resumes_most_recent(site, monkeypatch):
-    fake = FakeLLM(text_msg("First reply."), text_msg("Second reply."))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title one")
-    post(site + "/chat", {"message": "first message"})
-    post(site + "/chat", {"message": "second message", "session_id": "1"})
-    status, body = get(site + "/chat")
-    assert status == 200
-    assert 'name="session_id" value="1"' in body
-    assert "first message" in body and "First reply." in body
-    assert "second message" in body and "Second reply." in body
-
-
-def test_get_chat_specific_session(site, monkeypatch):
-    fake = FakeLLM(
-        text_msg("Session one chat."),
-        text_msg("Session two chat."),
-    )
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
-    post(site + "/chat", {"message": "one"})
-    post(site + "/chat", {"message": "two"})
-    status, body = get(site + "/chat?id=1")
-    assert status == 200
-    assert "Session one chat." in body
-    assert "Session two chat." not in body
-    assert 'name="session_id" value="1"' in body
-
-
-def test_get_chat_unknown_session_404(site):
-    with pytest.raises(urllib.error.HTTPError) as exc:
-        get(site + "/chat?id=99")
-    assert exc.value.code == 404
-
-
-# --- route: POST /chat creates the session ------------------------------------
-
-def test_first_message_creates_session_with_llm_title(site, monkeypatch):
-    fake = FakeLLM(text_msg("I can help with that."))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Workstation research")
-    status, body = post(site + "/chat", {"message": LONG_MESSAGE})
-    assert status == 200
-    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
-    row = conn.execute("SELECT id, title FROM chat_sessions").fetchone()
-    conn.close()
-    assert row == (1, "Workstation research")
-    assert 'name="session_id" value="1"' in body
-
-
-def test_title_fallback_when_generation_fails(site, monkeypatch):
-    def boom(*a, **k):
-        raise RuntimeError("router down")
-
-    fake = FakeLLM(text_msg("Fallback check."))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", boom)
-    post(site + "/chat", {"message": LONG_MESSAGE})
-    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
-    title = conn.execute("SELECT title FROM chat_sessions WHERE id=1").fetchone()[0]
-    conn.close()
-    assert title == LONG_MESSAGE[:40]
-
-
-def test_post_without_session_id_creates_a_new_session_even_when_one_exists(site, monkeypatch):
-    fake = FakeLLM(text_msg("Reply one."), text_msg("Reply two."))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
-    post(site + "/chat", {"message": "seeding session"})
-    # No session_id given ("New Chat"): a fresh session starts regardless.
-    status, body = post(site + "/chat", {"message": "fresh start, no session_id given"})
-    assert status == 200
-    assert 'name="session_id" value="2"' in body
-    # The new session's transcript is just this turn; session 1 keeps its own.
-    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
-    rows = conn.execute(
-        "SELECT role, content FROM session_messages WHERE chat_session_id=2 ORDER BY rowid"
-    ).fetchall()
-    conn.close()
-    assert rows == [
-        ("user", "fresh start, no session_id given"),
-        ("assistant", "Reply two."),
-    ]
-
-
-def test_model_failure_keeps_user_turn_rendered(site, monkeypatch):
-    def boom(messages, **kwargs):
-        raise RuntimeError("router down")
-
-    monkeypatch.setattr("src.router.chat_with_tools", boom)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
-    status, body = post(site + "/chat", {"message": "will the model answer?"})
-    assert status == 200
-    assert "Model call failed (RuntimeError); try again." in body
-    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
-    rows = conn.execute(
-        "SELECT role, content FROM session_messages WHERE chat_session_id=1 ORDER BY rowid"
-    ).fetchall()
-    conn.close()
-    assert rows == [("user", "will the model answer?")]
-
-
-# --- route: /confirm from a generic session -----------------------------------
-
-def _confirm_body() -> dict:
-    return {
-        "summary": DRAFT["summary"],
-        "product_identity": DRAFT["product_identity"],
-        "queries": "\n".join(DRAFT["queries"]),
-        "exclusions": "\n".join(DRAFT["exclusions"]),
-        "target_price": "200",
-        "location": "Kenmore, WA",
-        "session_id": "1",
-    }
-
-
-def test_confirm_from_session_creates_search_and_starts_fanout(site, monkeypatch):
-    fake = FakeLLM(text_msg(DRAFT_TEXT))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
-    recorded: list[tuple] = []
-    monkeypatch.setattr(
-        "src.server.fan_out",
-        lambda mkts, sid, loc: recorded.append((sid, loc)),
-    )
-    post(site + "/chat", {"message": "I want HP Z440 workstations under $200"})
-    status, body = post(site + "/confirm", _confirm_body())
-    assert status == 200
-    assert "Bargain Search #1" in body
-    deadline = time.time() + 2
-    while time.time() < deadline and not recorded:
-        time.sleep(0.01)
-    assert recorded == [(1, "Kenmore, WA")]
-
-
-def test_confirm_does_not_copy_transcript_into_conversations(site, monkeypatch):
-    fake = FakeLLM(text_msg(DRAFT_TEXT))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
-    monkeypatch.setattr("src.server.fan_out", lambda *a: None)
-    post(site + "/chat", {"message": "I want HP Z440 workstations under $200"})
-    post(site + "/confirm", _confirm_body())
-    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
-    count = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
-    search_count = conn.execute("SELECT COUNT(*) FROM bargain_searches").fetchone()[0]
-    session_msgs = conn.execute("SELECT COUNT(*) FROM session_messages").fetchone()[0]
-    conn.close()
-    assert count == 0  # nothing copied into the per-search conversations table
-    assert search_count == 1
-    assert session_msgs == 2  # the transcript lives on the session
-
-
 # --- existing conversations rows are untouched --------------------------------
 
 def test_existing_conversations_rows_survive_init(db):
@@ -405,62 +209,3 @@ def test_existing_conversations_rows_survive_init(db):
     init_db(os.environ["BOLDTRADER_DB"])  # idempotent re-init
     rows = db.execute("SELECT role, content FROM conversations").fetchall()
     assert rows == [("user", "legacy row")]
-
-
-# --- multi-draft confirm cascade: each confirm keeps the rest alive ----------
-
-def _d(n: int) -> dict:
-    return {
-        "summary": f"search {n}",
-        "product_identity": f"thing {n}",
-        "queries": [f"q{n}"],
-        "exclusions": [],
-        "target_price": 100 + n,
-        "location": "Kenmore, WA",
-    }
-
-
-def _confirm_body2(draft: dict, remaining: list) -> dict:
-    return {
-        "summary": draft["summary"],
-        "product_identity": draft["product_identity"],
-        "queries": "\n".join(draft["queries"]),
-        "exclusions": "\n".join(draft["exclusions"]),
-        "target_price": str(draft["target_price"]),
-        "location": draft["location"],
-        "session_id": "1",
-        "remaining_drafts": json.dumps(remaining),
-    }
-
-
-def test_confirm_keeps_unconfirmed_drafts_on_page(site, monkeypatch):
-    d1, d2, d3 = _d(1), _d(2), _d(3)
-    blocks = "\n".join("```json\n" + json.dumps(d) + "\n```" for d in (d1, d2, d3))
-    fake = FakeLLM(text_msg("Three ideas.\n\n" + blocks))
-    monkeypatch.setattr("src.router.chat_with_tools", fake)
-    monkeypatch.setattr("src.router.chat", lambda *a, **k: "Title")
-    monkeypatch.setattr("src.server.fan_out", lambda *a: None)
-    _, chat_html = post(site + "/chat", {"message": "three searches please"})
-    assert chat_html.count('<form class="confirm"') == 3
-    # confirm the first: the other two must still be on the page to confirm
-    _, out1 = post(site + "/confirm", _confirm_body2(d1, [d2, d3]))
-    assert "2 draft(s) awaiting confirmation" in out1
-    assert out1.count('<form class="confirm"') == 2
-    assert 'value="search 2"' in out1
-    assert 'value="search 3"' in out1
-    # confirm the second: the third must still be there
-    _, out2 = post(site + "/confirm", _confirm_body2(d2, [d3]))
-    assert "1 draft(s) awaiting confirmation" in out2
-    assert out2.count('<form class="confirm"') == 1
-    assert 'value="search 3"' in out2
-    # confirm the last: nothing left
-    _, out3 = post(site + "/confirm", _confirm_body2(d3, []))
-    assert "awaiting confirmation" not in out3
-    assert out3.count('<form class="confirm"') == 0
-    conn = sqlite3.connect(os.environ["BOLDTRADER_DB"])
-    summaries = [
-        r[0]
-        for r in conn.execute("SELECT summary FROM bargain_searches ORDER BY id")
-    ]
-    conn.close()
-    assert summaries == ["search 1", "search 2", "search 3"]

@@ -260,3 +260,47 @@ def test_patch_non_string_description_400(site):
     )
     assert status == 400
     assert body["error"]["code"] == "malformed_request"
+
+
+# --- eBay card title parsing (absorbed from the deleted test_session_delete) --
+
+
+@pytest.mark.parametrize(
+    "raw_title,expected",
+    [
+        (
+            "HP Z440 Workstation Dell Optiplex 7020 opens in a new window or tab",
+            "HP Z440 Workstation Dell Optiplex 7020",
+        ),
+        (
+            "HP Z440 Workstation OPENS IN A NEW WINDOW OR TAB",
+            "HP Z440 Workstation",
+        ),
+        ("HP Z440 Workstation", "HP Z440 Workstation"),
+        (
+            "Dell tower opens in a new window or tab for details",
+            "Dell tower opens in a new window or tab for details",
+        ),
+    ],
+)
+def test_ebay_card_title_strips_seo_suffix(raw_title, expected):
+    # eBay bakes "opens in a new window or tab" into every search-result
+    # title (accessibility duplication); the scraper must not carry it into
+    # stored titles.
+    from bs4 import BeautifulSoup
+
+    from src.ebay_scraper import EbayScraper
+
+    card_html = (
+        '<div class="s-card" data-listingid="ebay:1">'
+        '<div class="s-card__title">'
+        f'<a href="https://ebay.com/itm/1">{raw_title}</a>'
+        "</div>"
+        '<div class="s-card__price">$299.00</div>'
+        '<div class="s-card__subtitle">Used</div>'
+        "</div>"
+    )
+    card = BeautifulSoup(card_html, "html.parser").find("div")
+    listing = EbayScraper()._parse_card(card)
+    assert listing is not None
+    assert listing.title == expected
