@@ -25,7 +25,7 @@ describe("emptyTurn", () => {
       text: "",
       reasoning: "",
       toolCalls: [],
-      draft: null,
+      drafts: [],
     });
   });
 });
@@ -97,33 +97,40 @@ describe("tool_call / tool_result folding", () => {
 });
 
 describe("draft folding", () => {
-  it("stashes the draft object into pending.draft", () => {
-    const draft = {
-      summary: "HP Z440 tower",
-      product_identity: "HP Z440",
-      queries: ["hp z440"],
-      exclusions: [],
-      target_price: 300,
-      location: "US",
-    };
-    const s = reduce(emptyTurn(), { event: "draft", data: draft });
-    expect(s.pending.draft).toEqual(draft);
+  const D1 = {
+    summary: "HP Z440 tower",
+    product_identity: "HP Z440",
+    queries: ["hp z440"],
+    exclusions: [],
+    target_price: 300,
+    location: "US",
+  };
+  const D2 = {
+    summary: "Dell OptiPlex micro",
+    product_identity: "Dell OptiPlex",
+    queries: ["dell optiplex"],
+    exclusions: [],
+    target_price: 250,
+    location: "US",
+  };
+
+  it("appends each draft event to pending.drafts", () => {
+    let s = reduce(emptyTurn(), { event: "draft", data: D1 });
+    s = reduce(s, { event: "draft", data: D2 });
+    expect(s.pending.drafts).toEqual([D1, D2]);
   });
 
-  it("draft survives to turn_complete and lands on the committed message", () => {
-    let s = reduce(emptyTurn(), tok("Here is the "));
-    s = reduce(s, {
-      event: "draft",
-      data: { summary: "S", queries: ["q"] },
-    });
-    s = reduce(s, tok("search."));
+  it("all drafts survive to turn_complete and land on the committed message", () => {
+    let s = reduce(emptyTurn(), tok("Here are the "));
+    s = reduce(s, { event: "draft", data: D1 });
+    s = reduce(s, { event: "draft", data: D2 });
+    s = reduce(s, tok("searches."));
     s = reduce(s, {
       event: "turn_complete",
-      data: { session_id: 7, message: "Here is the search." },
+      data: { session_id: 7, message: "Here are the searches." },
     });
     expect(s.messages.length).toBe(1);
-    expect(s.messages[0].content).toBe("Here is the search.");
-    expect(s.messages[0].draft).toEqual({ summary: "S", queries: ["q"] });
+    expect(s.messages[0].drafts).toEqual([D1, D2]);
   });
 });
 
@@ -136,7 +143,7 @@ describe("turn_complete commit", () => {
     expect(s.messages[0].role).toBe("assistant");
     expect(s.messages[0].content).toBe("Hello world");
     // reset
-    expect(s.pending).toEqual({ text: "", reasoning: "", toolCalls: [], draft: null });
+    expect(s.pending).toEqual({ text: "", reasoning: "", toolCalls: [], drafts: [] });
   });
 
   it("carries committed tool chips onto the committed message", () => {
@@ -183,7 +190,7 @@ describe("error mid-turn", () => {
     s = reduce(s, { event: "error", data: { code: "boom", message: "bad" } });
     const cleared = clearError(s);
     expect(cleared.error).toBeNull();
-    expect(cleared.pending).toEqual({ text: "", reasoning: "", toolCalls: [], draft: null });
+    expect(cleared.pending).toEqual({ text: "", reasoning: "", toolCalls: [], drafts: [] });
     expect(cleared.messages).toHaveLength(1);
   });
 });
@@ -209,7 +216,7 @@ describe("reduceAll / recovery", () => {
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]?.content).toBe("The answer is 3.");
     expect(s.messages[0]?.toolCalls?.[0]?.chip).toBe("3 found");
-    expect(s.pending).toEqual({ text: "", reasoning: "", toolCalls: [], draft: null });
+    expect(s.pending).toEqual({ text: "", reasoning: "", toolCalls: [], drafts: [] });
   });
 });
 
@@ -240,7 +247,7 @@ describe("mid-stream disconnect", () => {
     };
     const s: TurnState = {
       messages: [committed],
-      pending: { text: "", reasoning: "", toolCalls: [], draft: null },
+      pending: { text: "", reasoning: "", toolCalls: [], drafts: [] },
       error: null,
       lastCommittedSessionId: 3,
     };

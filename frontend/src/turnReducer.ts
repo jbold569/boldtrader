@@ -19,7 +19,7 @@ export interface ChatViewMessage {
   content: string;
   created_at?: string;
   toolCalls?: ToolCallChip[];
-  draft?: unknown | null;
+  drafts?: unknown[];
   error?: { code: string; message: string } | null;
 }
 
@@ -27,7 +27,7 @@ export interface PendingTurn {
   text: string;
   reasoning: string;
   toolCalls: ToolCallChip[];
-  draft: unknown | null;
+  drafts: unknown[];
 }
 
 export interface TurnState {
@@ -43,7 +43,7 @@ export interface TurnEvent {
 }
 
 export function emptyPending(): PendingTurn {
-  return { text: "", reasoning: "", toolCalls: [], draft: null };
+  return { text: "", reasoning: "", toolCalls: [], drafts: [] };
 }
 
 // Frames carry JSON objects; trust only the keys we read, nothing else.
@@ -113,14 +113,16 @@ export function reduce(state: TurnState, e: TurnEvent): TurnState {
     }
 
     case "draft":
-      return { ...state, pending: { ...state.pending, draft: e.data } };
+      // The model may propose several Bargain Searches in one turn; each
+      // draft event appends its own confirmation card.
+      return { ...state, pending: { ...state.pending, drafts: [...state.pending.drafts, e.data] } };
 
     case "turn_complete": {
       const msg: ChatViewMessage = {
         role: "assistant",
         content: str(d, "message") || state.pending.text,
         toolCalls: state.pending.toolCalls,
-        draft: state.pending.draft,
+        drafts: state.pending.drafts,
         error: null,
       };
       return {

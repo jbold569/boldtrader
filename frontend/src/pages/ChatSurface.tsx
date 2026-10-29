@@ -171,7 +171,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
         const s = await getChatSession(sid);
         setTurn({
           messages: mapPersisted(s.messages),
-          pending: { text: "", reasoning: "", toolCalls: [], draft: null },
+          pending: { text: "", reasoning: "", toolCalls: [], drafts: [] },
           error: null,
           lastCommittedSessionId: s.id,
         });
@@ -313,7 +313,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
               <div className="ct-role">Agent</div>
               {m.toolCalls && m.toolCalls.length > 0 && <ChipRow chips={m.toolCalls} />}
               <div className="ct-text">{renderMd(m.content)}</div>
-              {m.draft ? renderDraft(m.draft) : null}
+              {(m.drafts ?? []).map(renderDraft)}
               {i === turn.messages.length - 1 && (
                 <div>
                   <button className="ct-regen" onClick={() => void regenerate()}>
@@ -336,7 +336,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
                 <span className="ct-dot" /> thinking…
               </div>
             )}
-            {turn.pending.draft ? renderDraft(turn.pending.draft) : null}
+            {turn.pending.drafts.map(renderDraft)}
           </div>
         )}
 
