@@ -164,6 +164,9 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Auto-scroll only while the reader is near the bottom; scrolling up to
+  // read history pins the view until they scroll back down (ticket #52).
+  const stickRef = useRef(true);
 
   const loadSession = useCallback(
     async (sid: number | string) => {
@@ -201,11 +204,21 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
     }
   }, [id, loadSession]);
 
-  // Keep the log pinned to the bottom as tokens stream in.
+  // Pin the log to the bottom as tokens stream in, but only while the
+  // user is at (or scrolls back to) the bottom.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (stickRef.current) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
   }, [turn]);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickRef.current = distance < 80;
+  }, []);
 
   const runTurn = useCallback(
     async (sid: number, text: string) => {
@@ -245,11 +258,17 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
     if (!text || streaming) return;
     setInput("");
     lastUserRef.current = text;
+    // A sent message always snaps the view back to the bottom.
+    stickRef.current = true;
     setTurn((prev) => ({
       ...prev,
       messages: [...prev.messages, { role: "user", content: text }],
       error: null,
     }));
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
     let sid = sessionIdRef.current;
     if (sid === null) {
       try {
@@ -302,7 +321,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
 
   return (
     <div className="chat">
-      <div className="ct-scroll" ref={scrollRef}>
+      <div className="ct-scroll" ref={scrollRef} onScroll={onScroll}>
         {turn.messages.map((m, i) =>
           m.role === "user" ? (
             <div key={i} className="ct-msg ct-user">

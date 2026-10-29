@@ -4,14 +4,9 @@
 .chat {
   display: flex;
   flex-direction: column;
-  /* viewport minus page padding + header (~55px) and the tray peek zone */
-  height: calc(100vh - 145px);
+  /* Fills the shell body; the tray peek reserve is owned by .shell-b. */
+  height: 100%;
   min-height: 380px;
-}
-@media (max-width: 767px) {
-  .chat {
-    height: calc(100vh - 190px);
-  }
 }
 
 .ct-scroll {

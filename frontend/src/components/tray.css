@@ -117,16 +117,21 @@
 
 /* ---- B: bottom sheet ---- */
 .shell-b {
-  min-height: 100vh;
-  padding-bottom: 62px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 28px;
 }
 @media (max-width: 767px) {
   .shell-b {
-    padding-bottom: 110px;
+    padding-bottom: 28px;
   }
 }
 .shell-b-body {
   padding: 14px;
+  flex: 1;
+  min-height: 0;
 }
 .sheet {
   position: fixed;
