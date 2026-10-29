@@ -709,6 +709,14 @@ def stream_turn(handler, session_id: str) -> None:
         # Persist the user message before streaming: a mid-turn disconnect
         # loses nothing (contract, ticket #42).
         chat_mod.append_session_message(conn, session["id"], "user", message)
+        # A session created without a title gets one from its first message
+        # (generate_title has a 40-char fallback, so this never fails loud).
+        if not session["title"]:
+            title = chat_mod.generate_title(message)
+            conn.execute(
+                "UPDATE chat_sessions SET title=? WHERE id=?", (title, session["id"])
+            )
+            conn.commit()
         chat_mod._touch(conn, session["id"])
         transcript = chat_mod.load_session_transcript(conn, session["id"])
     finally:

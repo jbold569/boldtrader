@@ -449,3 +449,48 @@ def test_next_reply_returns_draft_list(monkeypatch):
     reply, drafts, _rows = chat_mod.next_reply([], "two searches please")
     assert reply == "Here you go."
     assert len(drafts) == 2
+
+
+def test_strip_tool_call_text_removes_complete_block():
+    from src import chat as chat_mod
+
+    leaked = (
+        "Here is my answer.\n\n"
+        "<tool_call>\n<function=search_listings>\n<parameter=keyword>\nQuadro K1200\n"
+        "</parameter>\n</function>\n</tool_call>"
+    )
+    assert chat_mod.strip_tool_call_text(leaked) == "Here is my answer."
+
+
+def test_strip_tool_call_text_truncates_dangling_opener():
+    from src import chat as chat_mod
+
+    cut = "Good prose.<tool_call>\n<function=search_listings>\n<parameter=keyword>\nQuad"
+    assert chat_mod.strip_tool_call_text(cut) == "Good prose."
+
+
+def test_strip_tool_call_text_removes_im_end_markers():
+    from src import chat as chat_mod
+
+    text = "Reply text.<|im_end|>\n<|im_start|>assistant\nleftover"
+    assert chat_mod.strip_tool_call_text(text) == "Reply text.\nassistant\nleftover"
+
+
+def test_parse_reply_strips_chatml_before_drafts():
+    from src import chat as chat_mod
+
+    content = (
+        "<tool_call>\n<function=search_listings>\n<parameter=keyword>\nQuadro K1200\n"
+        "</parameter>\n</function>\n</tool_call>\n\n"
+        + _block(_variant(1))
+    )
+    text, drafts = chat_mod.parse_reply(content)
+    assert "tool_call" not in text
+    assert text == ""
+    assert len(drafts) == 1
+
+
+def test_parse_reply_plain_text_unchanged_by_strip():
+    from src import chat as chat_mod
+
+    assert chat_mod.parse_reply("Nothing special here.") == ("Nothing special here.", [])

@@ -12,6 +12,7 @@ table.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from .db import get_connection
@@ -196,14 +197,41 @@ class DraftError(ValueError):
 
 _DRAFT_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
+_XML_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*<function=[^>]*>.*?</function>\s*</tool_call>", re.DOTALL
+)
+
+
+def strip_tool_call_text(content: str) -> str:
+    """Remove ChatML tool-call XML from model text.
+
+    The router occasionally emits a tool call as ChatML/XML text instead of
+    structured deltas. Handles complete blocks, a block cut off mid-stream
+    (truncate at the dangling opener), and stray im_end/im_start markers.
+    """
+    out = _XML_TOOL_CALL_RE.sub("", content)
+    dangling = out.find("<tool_call>")
+    if dangling != -1:
+        out = out[:dangling]
+    out = out.replace("<|im_end|>", "").replace("<|im_start|>", "")
+    return out.strip()
+
+
 def parse_reply(content: str) -> tuple[str, list[dict]]:
     """Split an LLM reply into visible text and the list of proposed drafts.
 
-    The model may propose several Bargain Searches in one reply, each in
-    its own fenced JSON block; one confirmation form renders per draft.
-    A contract-violating block is not an error: it is skipped (and stays
-    visible in the text) while the valid ones still count.
+    ChatML tool-call text is stripped first: it is model plumbing, not
+    prose. The model may propose several Bargain Searches in one reply,
+    each in its own fenced JSON block; one confirmation form renders per
+    draft. A contract-violating block is not an error: it is skipped (and
+    stays visible in the text) while the valid ones still count.
     """
+    text = strip_tool_call_text(content)
+    if text != content.strip():
+        logging.getLogger(__name__).warning(
+            "model emitted raw ChatML tool-call text; stripped. raw=%r", content
+        )
+
     drafts: list[dict] = []
 
     def _collect(m: re.Match) -> str:
@@ -213,7 +241,7 @@ def parse_reply(content: str) -> tuple[str, list[dict]]:
             return m.group(0)
         return ""
 
-    text = _DRAFT_RE.sub(_collect, content).strip()
+    text = _DRAFT_RE.sub(_collect, text).strip()
     return text, drafts
 
 
