@@ -11,6 +11,7 @@ export const MARKETPLACE_OPTIONS = [
   { value: "all", label: "All marketplaces" },
   { value: "offerup", label: "OfferUp" },
   { value: "facebook", label: "Facebook" },
+  { value: "ebay", label: "eBay" },
 ];
 
 // Local marketplaces are metro-scoped: without a location they see nothing

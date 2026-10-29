@@ -79,3 +79,78 @@
   --radius-md: 8px;
   --radius-pill: 99px;
 }
+
+/* Global reset + base type. Without this the app renders in browser-default
+   serif (Times New Roman) with content-box sizing — the prototype ships this
+   in base.css; the SPA had none. Imported once at the app root. */
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+button:active {
+  transform: translateY(1px);
+}
+
+.chip {
+  display: inline-block;
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--neutral-bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip.ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: transparent;
+}
+.chip.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+.chip.bad {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-color: transparent;
+}
+
+.conf-track {
+  display: inline-block;
+  width: 64px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  vertical-align: middle;
+  overflow: hidden;
+}
+.conf-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+}
+
+.muted {
+  color: var(--muted);
+}

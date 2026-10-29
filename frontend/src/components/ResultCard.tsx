@@ -79,26 +79,44 @@ export default function ResultCard({
   );
 }
 
-// The Enrichment display: resolved product, condition, bundle, per-field
-// confidence, and the low-confidence note (an authored description can
-// fix what the model wasn't sure about). Shared with the condensed view's
-// expand panel (#47).
+// The Enrichment display (#45/#46 look from prototypes/src/TileView):
+// resolved product name + condition chip + a confidence bar, and the
+// bundle as a `+ item · item` line. The wire carries per-field string
+// confidences ("high"/"medium"/"low"); the bar shows the MINIMUM across
+// fields, colored by the same ramp (high→ok/100%, medium→warn/50%,
+// low|unknown→bad/20%).
+const RANK: Record<string, number> = { high: 2, medium: 1, low: 0, unknown: 0 };
+
 export function EnrichedBlock({ card }: { card: ResultCardData }) {
   const e = card.enrichment!;
-  const bundle = Array.isArray(e.bundle) ? (e.bundle as string[]).join(", ") : "?";
-  const parts = [
-    `manufacturer: ${str(e.product, "manufacturer")} (${str(e.confidence, "manufacturer")})`,
-    `model: ${str(e.product, "model")} (${str(e.confidence, "model")})`,
-    `config: ${str(e.product, "config")} (${str(e.confidence, "config")})`,
-    `condition: ${str(e, "condition")} (${str(e.confidence, "condition")})`,
-    `bundle: ${bundle === "" ? "?" : bundle} (${str(e.confidence, "bundle")})`,
-  ];
-  const low = ["manufacturer", "model", "config", "condition", "bundle"].some(
-    (f) => ["?", "low", "unknown"].includes(str(e.confidence, f)),
-  );
+  const bundle = Array.isArray(e.bundle) ? (e.bundle as string[]) : [];
+  const conf = (e.confidence ?? {}) as Record<string, unknown>;
+  const fields = ["manufacturer", "model", "config", "condition", "bundle"];
+  const ranks = fields.map((f) => RANK[String(conf[f] ?? "unknown")] ?? 0);
+  const min = Math.min(...ranks);
+  const pct = [20, 50, 100][min];
+  const color = ["var(--bad)", "var(--warn)", "var(--ok)"][min];
+  const model = str(e.product, "model");
+  const maker = str(e.product, "manufacturer");
+  const name =
+    model && model !== "?"
+      ? maker && maker !== "?" && !model.toLowerCase().includes(maker.toLowerCase())
+        ? `${maker} ${model}`
+        : model
+      : maker;
+  const low = min === 0;
   return (
     <div className="rc-enrich">
-      ✨ {parts.join(" · ")}
+      <div className="rc-enrich-row">
+        <b>{name || "Unidentified"}</b>
+        <span className="chip">{e.condition ?? "?"}</span>
+        <span className="conf-track" aria-label={`confidence ${pct}%`}>
+          <span className="conf-fill" style={{ width: `${pct}%`, background: color }} />
+        </span>
+      </div>
+      {bundle.length > 0 && (
+        <div className="rc-bundle">+ {bundle.join(" · ")}</div>
+      )}
       {low && (
         <div className="rc-lowconf">
           Low confidence — an authored description overrides this.

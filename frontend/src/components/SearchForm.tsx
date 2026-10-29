@@ -38,6 +38,9 @@ function validate(f: SearchFormState): Record<string, string> {
     errs.product_identity = "Make and model, or the spec that defines it.";
   if (f.queries.length === 0)
     errs.queries = "At least one keyword query to fan out.";
+  if (!f.location.trim())
+    errs.location =
+      "A location is needed — local marketplaces return nothing without one.";
   const tp = f.target_price.trim();
   if (tp !== "" && (!Number.isFinite(Number(tp)) || Number(tp) <= 0))
     errs.target_price = "A positive number — e.g. 300, or leave it empty.";
@@ -151,12 +154,14 @@ export default function SearchForm({
   submitting = false,
   serverError = null,
   submitLabel = "Create Bargain Search",
+  onCancel,
 }: {
   initial?: SearchFormState;
   onSubmit: (draft: Draft) => void;
   submitting?: boolean;
   serverError?: string | null;
   submitLabel?: string;
+  onCancel?: () => void;
 }) {
   const [f, setF] = useState<SearchFormState>(initial);
   const [errs, setErrs] = useState<Record<string, string>>({});
@@ -232,6 +237,11 @@ export default function SearchForm({
         />
       </Field>
       <div className="sform-foot">
+        {onCancel && (
+          <button type="button" className="btn-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
         <button type="submit" className="btn-primary" disabled={submitting}>
           {submitting ? "Saving…" : submitLabel}
         </button>

@@ -1,6 +1,7 @@
-// Draft → Bargain Search confirm card (ticket #50, M7 exit). A `draft`
-// event renders the same shared SearchForm pre-filled, inline in the
-// conversation where the draft arrived. Save = POST /api/v1/searches +
+// Draft → Bargain Search confirm card (ticket #50, M7 exit; preview phase
+// per #35). A `draft` event first shows a READ-ONLY preview of the proposal
+// (Discard / ✎ Edit / Save as-is). ✎ Edit reveals the shared SearchForm
+// pre-filled for the revision phase. Save = POST /api/v1/searches +
 // invalidate the list; discard = client-side no-op — ignoring a proposal
 // must cost nothing, so nothing reaches the server.
 //
@@ -22,10 +23,10 @@ export function draftKey(d: Draft): string {
   return JSON.stringify([
     d.summary,
     d.product_identity,
-    d.queries,
-    d.exclusions,
     d.target_price,
     d.location,
+    d.queries,
+    d.exclusions,
   ]);
 }
 
@@ -33,12 +34,12 @@ export function draftKey(d: Draft): string {
 // string while editing (see SearchFormState).
 export function draftToForm(d: Draft): SearchFormState {
   return {
-    summary: d.summary ?? "",
-    product_identity: d.product_identity ?? "",
+    summary: d.summary,
+    product_identity: d.product_identity,
     target_price: d.target_price == null ? "" : String(d.target_price),
     location: d.location ?? "",
-    queries: d.queries ?? [],
-    exclusions: d.exclusions ?? [],
+    queries: d.queries,
+    exclusions: d.exclusions,
   };
 }
 
@@ -55,50 +56,94 @@ export default function DraftCard({
   onSaved: (search: Search) => void;
   onDiscard: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   if (saved) {
     return (
-      <div className="dr-card dr-saved">
-        <span className="dr-title">✓ Bargain Search created:</span>{" "}
-        <Link to={`/bargains/${saved.id}`}>{saved.summary}</Link>
+      <div className="dr-saved">
+        ✓ Saved “<Link to={`/bargains/${saved.id}`}>{saved.summary}</Link>”.
       </div>
     );
   }
   if (discarded) {
     return <div className="dr-discarded">Draft discarded — nothing was created.</div>;
   }
+  async function save(d: Draft) {
+    setSaving(true);
+    setServerError(null);
+    try {
+      const created = await createSearch(d);
+      // The row itself must show up immediately; search_complete
+      // (fan-out done) refreshes match counts later.
+      queryClient.invalidateQueries({ queryKey: ["searches"] });
+      onSaved(created);
+    } catch (e) {
+      setServerError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    // Preview face: read-only (#35 — the user confirms first, edits only
+    // if they choose to). "Location" is the canonical word (#35/glossary).
+    return (
+      <div className="dr-card dr-preview">
+        <h3 className="dr-title">💰 Draft Bargain Search: {draft.summary}</h3>
+        <div className="dr-row">
+          <span className="k">Product</span>
+          <span>{draft.product_identity}</span>
+        </div>
+        <div className="dr-row">
+          <span className="k">Target price</span>
+          <span>{draft.target_price == null ? "—" : `$${draft.target_price}`}</span>
+        </div>
+        <div className="dr-row">
+          <span className="k">Location</span>
+          <span>{draft.location || "—"}</span>
+        </div>
+        <div className="dr-row">
+          <span className="k">Queries</span>
+          <span>{draft.queries.join(", ") || "—"}</span>
+        </div>
+        <div className="dr-row">
+          <span className="k">Exclusions</span>
+          <span>{draft.exclusions.join(", ") || "—"}</span>
+        </div>
+        <div className="dr-actions">
+          <button type="button" onClick={onDiscard} disabled={saving}>
+            Discard
+          </button>
+          <button type="button" onClick={() => setEditing(true)} disabled={saving}>
+            ✎ Edit
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={saving}
+            onClick={() => void save(draft)}
+          >
+            {saving ? "Saving…" : "Save as-is"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="dr-card">
       <div className="dr-head">
-        <span className="dr-title">Agent proposes a Bargain Search</span>
-        <button type="button" className="dr-discard" onClick={onDiscard}>
-          Discard
-        </button>
+        <span className="dr-title">Edit the proposed search</span>
       </div>
       <SearchForm
         initial={draftToForm(draft)}
         submitting={saving}
         serverError={serverError}
         submitLabel="Save as Bargain Search"
-        onSubmit={async (d) => {
-          setSaving(true);
-          setServerError(null);
-          try {
-            const created = await createSearch(d);
-            // The row itself must show up immediately; search_complete
-            // (fan-out done) refreshes match counts later.
-            queryClient.invalidateQueries({ queryKey: ["searches"] });
-            onSaved(created);
-          } catch (e) {
-            setServerError(e instanceof Error ? e.message : String(e));
-          } finally {
-            setSaving(false);
-          }
-        }}
+        onSubmit={(d) => void save(d)}
       />
     </div>
   );

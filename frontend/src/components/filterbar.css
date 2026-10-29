@@ -32,7 +32,7 @@
   font-size: var(--text-sm);
   color: var(--muted);
 }
-.fb-field input[type="number"] {
+#fb-max {
   width: 110px;
 }
 .fb-count {

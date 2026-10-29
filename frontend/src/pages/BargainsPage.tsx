@@ -139,6 +139,7 @@ export default function BargainsPage() {
                 onSubmit={onCreate}
                 submitting={false}
                 serverError={serverError}
+                onCancel={() => setOpen(false)}
               />
             </div>
           </div>

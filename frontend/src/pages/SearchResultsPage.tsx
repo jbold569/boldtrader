@@ -219,25 +219,6 @@ export default function SearchResultsPage() {
     exclusions: search.data.exclusions,
   };
 
-  const lv = liveness.data;
-  const banner =
-    lv && !lv.done ? (
-      <div className="lv-banner" role="status">
-        Checking listing liveness…
-      </div>
-    ) : lv?.banner ? (
-      <div className="lv-banner" role="alert">
-        {lv.banner}
-      </div>
-    ) : lv ? (
-      <div className="lv-banner lv-ok" role="status">
-        Liveness checked
-        {lv.dead.length
-          ? ` — ${lv.dead.length} listing${lv.dead.length === 1 ? "" : "s"} ended`
-          : " — all listings live"}
-        .
-      </div>
-    ) : null;
 
   const empty = hasVerdicts
     ? view !== null && view.items.length === 0
@@ -262,9 +243,6 @@ export default function SearchResultsPage() {
           </div>
         </div>
       </div>
-
-      {banner}
-
       <FilterBar count={results.data?.total ?? 0} />
 
       {(results.isError || pending.length > 0) && (
@@ -362,6 +340,7 @@ export default function SearchResultsPage() {
                 submitting={false}
                 serverError={serverError}
                 submitLabel="Save changes"
+                onCancel={() => setEditOpen(false)}
               />
             </div>
           </div>

@@ -15,7 +15,7 @@
 .chip.bad {
   background: var(--bad-bg);
   color: var(--bad);
-  border-color: var(--bad);
+  border-color: transparent;
 }
 .sr-head {
   display: flex;
@@ -42,23 +42,6 @@
 .sr-error {
   color: var(--bad);
 }
-
-/* Liveness banner: fan-out sweep progress / completion (#45 replaces the
-   retired standalone liveness page). */
-.lv-banner {
-  background: var(--warn-bg);
-  color: var(--warn);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3);
-  font-size: var(--text-sm);
-}
-.lv-ok {
-  background: var(--ok-bg);
-  color: var(--ok);
-}
-
 /* ---------- ResultCard ---------- */
 .rc-grid {
   display: grid;
@@ -99,11 +82,10 @@
   gap: var(--space-3);
 }
 .rc-thumb {
-  width: 84px;
-  height: 84px;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
   background: var(--surface-2);
   flex: none;
 }
@@ -116,8 +98,8 @@
   align-self: flex-start;
   font-size: var(--text-xs);
   font-weight: 700;
-  padding: 3px 8px;
-  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  border-radius: 6px;
 }
 .rc-verdict-ok {
   background: var(--ok-bg);
@@ -164,6 +146,16 @@
   padding: var(--space-2);
   font-size: var(--text-sm);
   color: var(--fg);
+}
+.rc-enrich-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rc-bundle {
+  margin-top: 4px;
+  color: var(--muted);
 }
 .rc-enrich-pending {
   color: var(--muted);

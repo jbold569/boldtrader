@@ -369,7 +369,7 @@ export default function ChatSurface({ viewed, onViewed }: Props) {
         <textarea
           ref={textareaRef}
           value={input}
-          placeholder="Message the agent…"
+          placeholder="Ask the agent anything… (Enter sends)"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
           aria-label="Chat message"

@@ -4,8 +4,14 @@
 .chat {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  /* viewport minus page padding + header (~55px) and the tray peek zone */
+  height: calc(100vh - 145px);
+  min-height: 380px;
+}
+@media (max-width: 767px) {
+  .chat {
+    height: calc(100vh - 190px);
+  }
 }
 
 .ct-scroll {
@@ -18,7 +24,7 @@
 }
 
 .ct-msg {
-  max-width: 46rem;
+  max-width: 720px;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -30,10 +36,12 @@
   align-self: flex-end;
   background: var(--accent);
   color: var(--on-accent);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  width: fit-content;
+  max-width: 80%;
   white-space: pre-wrap;
-  font-size: var(--text-base);
+  font-size: 15px;
 }
 
 .ct-role {

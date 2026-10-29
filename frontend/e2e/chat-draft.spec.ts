@@ -1,10 +1,12 @@
-// The one Playwright smoke of the migration (ticket #50, M7 exit):
-// a REAL streamed chat turn through the served SPA. No mocks — the turn
-// goes through the model router and the live tool backends.
+// The one Playwright smoke of the migration (ticket #50, M7 exit; draft
+// preview phase per #35): a REAL streamed chat turn through the served
+// SPA. No mocks — the turn goes through the model router and the live
+// tool backends.
 //
 // Flow: open `/` -> send a message -> assert tokens stream live and a
-// tool-call chip reaches complete -> the draft card renders inline ->
-// edit a field -> save -> confirmed card -> the search is in /bargains.
+// tool-call chip reaches complete -> the draft PREVIEW card renders
+// inline -> ✎ Edit -> the form -> save -> confirmed card -> the search
+// is in /bargains.
 
 import { test, expect, type Page } from "@playwright/test";
 
@@ -41,17 +43,17 @@ test("streamed chat turn: live tokens, completed tool chip, draft saves to /barg
     timeout: 120_000,
   });
 
-  // 3. The draft renders inline as a pre-filled SearchForm card.
+  // 3. The draft renders inline as a read-only PREVIEW card (#35):
+  //    five labeled rows and the three actions.
   const card = page.locator(".dr-card").first();
   await expect(card).toBeVisible({ timeout: 120_000 });
-  await expect(card.getByLabel("Summary")).toHaveValue(/.+/);
-  await expect(card.getByLabel("Product identity")).toHaveValue(/.+/);
-  // The queries control is the TagInput inside the card; its accessible
-  // name comes from the placeholder (the wrapping label holds chips).
-  await expect(card.getByPlaceholder("type a query, press Enter")).toBeVisible();
+  await expect(card.locator(".dr-row")).toHaveCount(5);
+  await expect(card.getByRole("button", { name: "Save as-is" })).toBeVisible();
 
-  // 4. The card stays usable while the turn finishes; then save with an
-  //    edited location to prove editability end-to-end.
+  // 4. ✎ Edit reveals the SearchForm; edit the location to prove
+  //    editability end-to-end.
+  await card.getByRole("button", { name: /Edit/ }).click();
+  await expect(card.getByLabel("Location")).toBeVisible();
   await card.getByLabel("Location").fill("Kenmore, WA");
   await card.getByRole("button", { name: "Save as Bargain Search" }).click();
 
