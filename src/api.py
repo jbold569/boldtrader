@@ -1635,3 +1635,14 @@ def handle(handler) -> None:
             exc.status,
             {"error": {"code": exc.code, "message": exc.message}},
         )
+    except Exception:
+        # Contract: errors are never HTML (ticket #57). The traceback goes
+        # to the log; the client gets the JSON 500 it always expects.
+        logging.getLogger(__name__).exception(
+            "Unhandled error on %s %s", handler.command, handler.path
+        )
+        _send_json(
+            handler,
+            500,
+            {"error": {"code": "internal", "message": "Internal server error"}},
+        )
