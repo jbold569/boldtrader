@@ -36,6 +36,11 @@ CARD_KEYS = {
     "availability",
     "authored_description",
     "enrichment",
+    "shipping",
+    "effective_price",
+    "fair_price",
+    "margin_pct",
+    "n_observations",
 }
 
 ENRICHMENT_KEYS = {"status", "product", "condition", "bundle", "confidence"}

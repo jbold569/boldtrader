@@ -17,10 +17,13 @@ import math
 import threading
 from urllib.parse import parse_qs, urlparse
 
+from datetime import date, timedelta
+
 from . import chat as chat_mod
-from . import enhanced, events, liveness
+from . import dealmath, enhanced, events, liveness
 from .db import get_connection
 from .fanout import fan_out, reenrich_search
+from . import identity as ident_mod
 from . import router
 
 DEFAULT_PER_PAGE = 50
@@ -401,10 +404,10 @@ def _read_results_filters(qs: dict) -> tuple[set, float | None, str, str]:
 
 def search_results(search_id: str, qs: dict) -> dict:
     """Paginated result cards for one Bargain Search. Filters and sort are
-    applied before the page is sliced, per contract. The effective price
-    the max_price filter compares against is the asking price — the same
-    MVP shortcut the legacy enhanced view uses (flip-value math is not
-    built). Rejected listings never appear, same as the legacy view."""
+    applied before the page is sliced, per contract. max_price compares
+    against the effective price — out-the-door minus the flip value of
+    the bundled extras — not the raw ask (ticket #56). Rejected listings
+    never appear, same as the legacy view."""
     page, per_page = _read_paging(qs)
     wanted, max_price, availability, sort = _read_results_filters(qs)
     try:
@@ -412,6 +415,9 @@ def search_results(search_id: str, qs: dict) -> dict:
     except (TypeError, ValueError):
         raise ApiError(404, "search_not_found", f"No bargain search with id {search_id}")
     conn = get_connection()
+    window_start = (
+        date.today() - timedelta(days=dealmath.FAIR_WINDOW_DAYS)
+    ).isoformat()
     try:
         row = conn.execute(
             "SELECT listing_ids, stale_lids FROM bargain_searches WHERE id=?", (key,)
@@ -425,6 +431,7 @@ def search_results(search_id: str, qs: dict) -> dict:
             placeholders = ",".join("?" * len(verdicts))
             rows = conn.execute(
                 f"SELECT l.id, l.raw, l.authored_description, l.availability, "
+                f"l.shipping_cost, l.product_identity_id, "
                 f"e.status, e.product, e.condition, e.bundle, e.confidence "
                 f"FROM listings l LEFT JOIN enrichments e ON e.listing_id = l.id "
                 f"WHERE l.id IN ({placeholders}) AND l.id NOT IN "
@@ -432,13 +439,33 @@ def search_results(search_id: str, qs: dict) -> dict:
                 f"ORDER BY l.first_seen_at DESC",
                 (*verdicts.keys(), key),
             ).fetchall()
-            for lid, raw, authored, avail, e_status, e_prod, e_cond, e_bun, e_conf in rows:
+            for (
+                lid, raw, authored, avail, shipping, pid,
+                e_status, e_prod, e_cond, e_bun, e_conf,
+            ) in rows:
                 data = json.loads(raw)
                 verdict = verdicts.get(lid, "match")
                 if verdict not in wanted:
                     continue
                 price = data.get("price")
-                if max_price is not None and (price is None or price > max_price):
+                bundle = json.loads(e_bun) if e_bun else None
+                identity_desc = None
+                if e_prod:
+                    try:
+                        identity_desc = (json.loads(e_prod) or {}).get("description")
+                    except ValueError:
+                        identity_desc = None
+                effective = None
+                if price is not None:
+                    flip = (
+                        dealmath.flip_value(conn, bundle, identity_desc or "")
+                        if bundle
+                        else 0.0
+                    )
+                    effective = dealmath.effective_price(float(price), shipping, flip)
+                if max_price is not None and (
+                    effective is None or effective > max_price
+                ):
                     continue
                 card_avail = avail or "live"
                 if availability and card_avail != availability:
@@ -449,9 +476,21 @@ def search_results(search_id: str, qs: dict) -> dict:
                         "status": e_status,
                         "product": json.loads(e_prod) if e_prod else None,
                         "condition": e_cond,
-                        "bundle": json.loads(e_bun) if e_bun else None,
+                        "bundle": bundle,
                         "confidence": json.loads(e_conf) if e_conf else None,
                     }
+                fair = n_obs = None
+                if pid is not None:
+                    fair = dealmath.fair_price(conn, pid, e_cond or "complete")
+                    n_obs = conn.execute(
+                        "SELECT COUNT(*) FROM price_observations "
+                        "WHERE product_identity_id=? AND condition=? "
+                        "AND observed_at >= ?",
+                        (pid, e_cond or "complete", window_start),
+                    ).fetchone()[0]
+                margin = None
+                if fair is not None and effective is not None:
+                    margin = (fair - effective) / fair * 100.0
                 cards.append(
                     {
                         "listing_id": lid,
@@ -465,6 +504,11 @@ def search_results(search_id: str, qs: dict) -> dict:
                         "availability": card_avail,
                         "authored_description": authored,
                         "enrichment": enrichment,
+                        "shipping": shipping,
+                        "effective_price": effective,
+                        "fair_price": fair,
+                        "margin_pct": margin,
+                        "n_observations": n_obs,
                     }
                 )
     finally:
@@ -857,6 +901,596 @@ def _read_body(handler) -> dict:
     return body
 
 
+# --- Product Identities, Deals, Settings, Corrections (ticket #56) ------
+
+
+IDENTITY_COLUMNS = (
+    "id, description, deal_threshold, synthesized_at, created_at, updated_at"
+)
+
+VALID_DEAL_SORTS = ("margin_desc", "margin_asc")
+DEAL_SETTINGS_KEYS = ("deal_threshold",)
+
+
+def _ts_or_none(ts):
+    """Normalize a stored timestamp for the wire. Timestamps in these
+    columns come in two shapes depending on who wrote them: SQLite's
+    'YYYY-MM-DD HH:MM:SS' and identity._now()'s Z-suffixed ISO form.
+    The Z form passes through; anything else gets the _iso treatment."""
+    if ts is None or ts.endswith("Z"):
+        return ts
+    return _iso(ts)
+
+
+def _identity_resource(row) -> dict:
+    (
+        identity_id,
+        description,
+        deal_threshold,
+        synthesized_at,
+        created_at,
+        updated_at,
+    ) = row
+    return {
+        "id": identity_id,
+        "description": description,
+        "deal_threshold": deal_threshold,
+        "synthesized_at": _ts_or_none(synthesized_at),
+        "created_at": _iso(created_at),
+        "updated_at": _iso(updated_at),
+    }
+
+
+def _load_identity(conn, identity_id) -> dict:
+    try:
+        key = int(identity_id)
+    except (TypeError, ValueError):
+        raise ApiError(404, "identity_not_found", f"No product identity with id {identity_id}")
+    row = conn.execute(
+        f"SELECT {IDENTITY_COLUMNS} FROM product_identities WHERE id=?", (key,)
+    ).fetchone()
+    if row is None:
+        raise ApiError(404, "identity_not_found", f"No product identity with id {identity_id}")
+    return _identity_resource(row)
+
+
+def _unique(items: list) -> list:
+    """Order-preserving dedupe; dicts compare by their JSON form."""
+    seen: set = set()
+    out: list = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True) if isinstance(item, dict) else item
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
+def list_identities(qs: dict) -> dict:
+    """Paginated Product Identity list."""
+    page, per_page = _read_paging(qs)
+    conn = get_connection()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM product_identities").fetchone()[0]
+        rows = conn.execute(
+            f"SELECT {IDENTITY_COLUMNS} FROM product_identities "
+            "ORDER BY id LIMIT ? OFFSET ?",
+            (per_page, (page - 1) * per_page),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "items": [_identity_resource(r) for r in rows],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": max(1, math.ceil(total / per_page)),
+    }
+
+
+def get_identity(handler, identity_id: str) -> None:
+    conn = get_connection()
+    try:
+        resource = _load_identity(conn, identity_id)
+    finally:
+        conn.close()
+    _send_json(handler, 200, resource)
+
+
+def patch_identity(handler, identity_id: str) -> None:
+    """Edit the identity's description and/or deal_threshold. Clearing
+    deal_threshold (null) falls back to the global setting."""
+    body = _read_draft(handler)
+    fields: dict = {}
+    if "description" in body:
+        value = body["description"]
+        if not isinstance(value, str) or not value.strip():
+            raise ApiError(422, "invalid_identity", "description must be a non-empty string")
+        fields["description"] = value.strip()
+    if "deal_threshold" in body:
+        value = body["deal_threshold"]
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                raise ApiError(422, "invalid_identity", "deal_threshold must be a positive number")
+            value = float(value)
+        fields["deal_threshold"] = value
+    conn = get_connection()
+    try:
+        current = _load_identity(conn, identity_id)
+        sets = ", ".join(f"{k}=?" for k in fields)
+        if sets:
+            conn.execute(
+                f"UPDATE product_identities SET {sets}, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=?",
+                (*fields.values(), current["id"]),
+            )
+            conn.commit()
+        resource = _load_identity(conn, current["id"])
+    finally:
+        conn.close()
+    _send_json(handler, 200, resource)
+
+
+def merge_identities(handler, loser_id: str) -> None:
+    """Re-point every listing, price observation, and search mapping from
+    the loser into the winner, then delete the loser. One transaction:
+    either all of it moved or none did. Bundle-component membership is
+    the description string inside each listing's own record, so the
+    listings re-point covers it too — no separate membership table."""
+    body = _read_draft(handler)
+    if "into" not in body:
+        raise ApiError(400, "invalid_merge", "into is required")
+    winner_arg = body["into"]
+    if isinstance(winner_arg, bool) or not isinstance(winner_arg, int):
+        raise ApiError(422, "invalid_merge", "into must be an integer identity id")
+    conn = get_connection()
+    try:
+        loser = _load_identity(conn, loser_id)
+        if int(loser["id"]) == winner_arg:
+            raise ApiError(422, "invalid_merge", "cannot merge an identity into itself")
+        if conn.execute(
+            "SELECT 1 FROM product_identities WHERE id=?", (winner_arg,)
+        ).fetchone() is None:
+            raise ApiError(404, "identity_not_found", f"No product identity with id {winner_arg}")
+        try:
+            # Children first: the FK would (rightly) refuse to delete a
+            # still-referenced identity.
+            for table in ("listings", "price_observations", "bargain_searches"):
+                conn.execute(
+                    f"UPDATE {table} SET product_identity_id=? WHERE product_identity_id=?",
+                    (winner_arg, loser["id"]),
+                )
+            conn.execute("DELETE FROM product_identities WHERE id=?", (loser["id"],))
+            winner = _load_identity(conn, winner_arg)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            raise ApiError(500, "merge_failed", f"merge failed, nothing changed: {exc}")
+    finally:
+        conn.close()
+    _send_json(handler, 200, winner)
+
+
+def retune_identity(handler, identity_id: str) -> None:
+    """Explicit, user-triggered synthesis: gather the evidence from every
+    search mapped to this identity and rewrite its living description
+    (ticket #56, ADR 0012). A failure of the model is reported as 500;
+    nothing is half-persisted."""
+    conn = get_connection()
+    try:
+        identity = _load_identity(conn, identity_id)
+        search_ids = [
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM bargain_searches WHERE product_identity_id=?",
+                (identity["id"],),
+            )
+        ]
+        matched: list = []
+        rejects: list = []
+        authored: list = []
+        for sid in search_ids:
+            ev = ident_mod.collect_retune_evidence(conn, sid)
+            matched.extend(ev["matched"])
+            rejects.extend(ev["rejects"])
+            authored.extend(ev["authored_descriptions"])
+        if identity["synthesized_at"] is None:
+            evidence = {
+                "mode": "synthesize",
+                "current_description": identity["description"],
+                "matched": _unique(matched),
+                "rejects": [],
+                "authored_descriptions": [],
+                "deal_threshold": None,
+            }
+        else:
+            evidence = {
+                "mode": "retune",
+                "current_description": identity["description"],
+                "matched": _unique(matched),
+                "rejects": _unique(rejects),
+                "authored_descriptions": _unique(authored),
+                "deal_threshold": identity["deal_threshold"],
+            }
+        try:
+            new_description = router.synthesize_description(evidence)
+        except Exception as exc:
+            raise ApiError(500, "synthesis_failed", f"description synthesis failed: {exc}")
+        if not new_description.strip() or new_description == identity["description"]:
+            _send_json(handler, 200, identity)
+            return
+        now = ident_mod._now()
+        conn.execute(
+            "UPDATE product_identities SET description=?, synthesized_at=?, "
+            "updated_at=? WHERE id=?",
+            (new_description, now, now, identity["id"]),
+        )
+        for sid in search_ids:
+            conn.execute(
+                "UPDATE bargain_searches SET stale_lids=?, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=?",
+                (json.dumps(ident_mod.matched_lids(conn, sid)), sid),
+            )
+        conn.commit()
+        resource = _load_identity(conn, identity["id"])
+    finally:
+        conn.close()
+    _send_json(handler, 200, resource)
+
+
+def list_deals(qs: dict) -> dict:
+    """Every identified, live-listed listing whose computed verdict is
+    'deal', sorted by margin (descending by default). Cold starts — no
+    fair price yet — never qualify. max_price filters the effective
+    price, per contract (ticket #56)."""
+    page, per_page = _read_paging(qs)
+    sort = (qs.get("sort") or ["margin_desc"])[0]
+    if sort not in VALID_DEAL_SORTS:
+        raise ApiError(400, "invalid_sort", f"unknown sort {sort!r}")
+    max_price: float | None = None
+    raw_max = (qs.get("max_price") or [""])[0]
+    if raw_max:
+        try:
+            max_price = float(raw_max)
+        except ValueError:
+            raise ApiError(400, "invalid_max_price", "max_price must be a number")
+    availability = (qs.get("availability") or [""])[0]
+    if availability and availability not in VALID_AVAILABILITY:
+        raise ApiError(
+            400, "invalid_availability", f"unknown availability {availability!r}"
+        )
+    identity_filter: int | None = None
+    raw_pid = (qs.get("product_identity_id") or [""])[0]
+    if raw_pid:
+        try:
+            identity_filter = int(raw_pid)
+        except ValueError:
+            raise ApiError(
+                400, "invalid_product_identity_id", "product_identity_id must be an integer"
+            )
+    marketplace = (qs.get("marketplace") or [""])[0]
+    window_start = (
+        date.today() - timedelta(days=dealmath.FAIR_WINDOW_DAYS)
+    ).isoformat()
+    conn = get_connection()
+    try:
+        sql = (
+            "SELECT l.id, l.raw, l.shipping_cost, l.product_identity_id, "
+            "e.condition, e.bundle, e.product "
+            "FROM listings l LEFT JOIN enrichments e ON e.listing_id = l.id "
+            "WHERE l.product_identity_id IS NOT NULL"
+        )
+        args: list = []
+        if identity_filter is not None:
+            sql += " AND l.product_identity_id=?"
+            args.append(identity_filter)
+        if availability:
+            sql += " AND l.availability=?"
+            args.append(availability)
+        rows = conn.execute(sql, args).fetchall()
+        items: list[dict] = []
+        for lid, raw, shipping, pid, cond, bun, prod in rows:
+            data = json.loads(raw)
+            if marketplace and (data.get("marketplace") or "") != marketplace:
+                continue
+            price = data.get("price")
+            if price is None:
+                continue
+            condition = cond or "complete"
+            fair = dealmath.fair_price(conn, pid, condition)
+            if fair is None:
+                continue
+            bundle = json.loads(bun) if bun else None
+            identity_desc = None
+            if prod:
+                try:
+                    identity_desc = (json.loads(prod) or {}).get("description")
+                except ValueError:
+                    identity_desc = None
+            flip = (
+                dealmath.flip_value(conn, bundle, identity_desc or "")
+                if bundle
+                else 0.0
+            )
+            effective = dealmath.effective_price(float(price), shipping, flip)
+            threshold = dealmath.threshold_for(conn, pid)
+            if dealmath.deal_verdict(effective, fair, threshold) != "deal":
+                continue
+            if max_price is not None and effective > max_price:
+                continue
+            n_obs = conn.execute(
+                "SELECT COUNT(*) FROM price_observations "
+                "WHERE product_identity_id=? AND condition=? AND observed_at >= ?",
+                (pid, condition, window_start),
+            ).fetchone()[0]
+            items.append(
+                {
+                    "listing_id": lid,
+                    "title": data.get("title") or "",
+                    "url": data.get("url") or "",
+                    "asking_price": price,
+                    "marketplace": data.get("marketplace") or "",
+                    "image_url": data.get("image_url") or "",
+                    "condition": condition,
+                    "shipping": shipping,
+                    "fair_price": fair,
+                    "margin_pct": (fair - effective) / fair * 100.0,
+                    "n_observations": n_obs,
+                }
+            )
+    finally:
+        conn.close()
+    items.sort(key=lambda i: -i["margin_pct"])
+    total = len(items)
+    return {
+        "items": items[(page - 1) * per_page : page * per_page],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": max(1, math.ceil(total / per_page)),
+    }
+
+
+def _settings_object() -> dict:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    finally:
+        conn.close()
+    out: dict = {}
+    for key, value in rows:
+        try:
+            out[key] = float(value)
+        except ValueError:
+            out[key] = value
+    return out
+
+
+def get_settings(handler) -> None:
+    _send_json(handler, 200, _settings_object())
+
+
+def patch_settings(handler) -> None:
+    body = _read_draft(handler)
+    unknown = set(body) - set(DEAL_SETTINGS_KEYS)
+    if unknown:
+        raise ApiError(
+            422, "invalid_settings", f"unknown settings: {', '.join(sorted(unknown))}"
+        )
+    if "deal_threshold" in body:
+        value = body["deal_threshold"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise ApiError(422, "invalid_settings", "deal_threshold must be a positive number")
+        conn = get_connection()
+        try:
+            conn.execute(
+                "UPDATE settings SET value=? WHERE key='deal_threshold'",
+                (str(float(value)),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    _send_json(handler, 200, _settings_object())
+
+
+def run_search(handler, search_id: str) -> None:
+    """Explicit re-fan-out: same background-thread model as create, but
+    the draft is untouched so `version` does not move (ticket #56)."""
+    conn = get_connection()
+    try:
+        resource = _load(conn, search_id)
+    finally:
+        conn.close()
+    _send_json(handler, 202, resource)
+    _kick_fanout(handler, resource["id"], resource["location"])
+
+
+def restore_rejection(handler, search_id: str, listing_id: str) -> None:
+    """Undo a rejection: the user is asserting the listing IS the
+    product. The reject row goes away, its exclusion drops (only if no
+    remaining rejection shares the reason), the verdict becomes a match,
+    and the lid leaves the stale list. The retune that follows picks it
+    up as matched context (ticket #56)."""
+    try:
+        key = int(search_id)
+    except (TypeError, ValueError):
+        raise ApiError(404, "search_not_found", f"No bargain search with id {search_id}")
+    conn = get_connection()
+    try:
+        if conn.execute(
+            "SELECT 1 FROM bargain_searches WHERE id=?", (key,)
+        ).fetchone() is None:
+            raise ApiError(404, "search_not_found", f"No bargain search with id {search_id}")
+        row = conn.execute(
+            "SELECT reason FROM rejects WHERE bargain_search_id=? AND listing_id=?",
+            (key, listing_id),
+        ).fetchone()
+        if row is None:
+            raise ApiError(
+                404,
+                "rejection_not_found",
+                f"No rejection of listing {listing_id} in search {search_id}",
+            )
+        conn.execute(
+            "DELETE FROM rejects WHERE bargain_search_id=? AND listing_id=?",
+            (key, listing_id),
+        )
+        # Exclusions are exactly the reasons still on the books: whatever
+        # the remaining rejections carry, in rejection order.
+        exclusions = [
+            r[0]
+            for r in conn.execute(
+                "SELECT reason FROM rejects WHERE bargain_search_id=? ORDER BY rowid",
+                (key,),
+            )
+            if r[0]
+        ]
+        listing_ids = json.loads(
+            conn.execute(
+                "SELECT listing_ids FROM bargain_searches WHERE id=?", (key,)
+            ).fetchone()[0]
+        )
+        listing_ids[listing_id] = "match"
+        stale = [s for s in json.loads(
+            conn.execute(
+                "SELECT stale_lids FROM bargain_searches WHERE id=?", (key,)
+            ).fetchone()[0]
+        ) if s != listing_id]
+        conn.execute(
+            "UPDATE bargain_searches SET listing_ids=?, exclusions=?, stale_lids=?, "
+            "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (json.dumps(listing_ids), json.dumps(exclusions), json.dumps(stale), key),
+        )
+        conn.commit()
+        resource = _load(conn, str(key))
+    finally:
+        conn.close()
+    _send_json(handler, 200, resource)
+
+
+CORRECTION_FIELDS = ("product_identity", "condition", "bundle")
+
+
+def correct_enrichment(handler, listing_id: str) -> None:
+    """A Correction: set the enrichment record by hand. corrected=1
+    freezes it — no later Enrichment pass overwrites it (GLOSSARY:
+    Correction, ticket #56)."""
+    body = _read_draft(handler)
+    if not any(field in body for field in CORRECTION_FIELDS):
+        raise ApiError(
+            400,
+            "invalid_correction",
+            "at least one of product_identity, condition, bundle is required",
+        )
+    conn = get_connection()
+    try:
+        if conn.execute(
+            "SELECT 1 FROM listings WHERE id=?", (listing_id,)
+        ).fetchone() is None:
+            raise ApiError(404, "listing_not_found", f"No listing with id {listing_id}")
+        product = condition = bundle = None
+        if "product_identity" in body:
+            desc = body["product_identity"]
+            if not isinstance(desc, str) or not desc.strip():
+                raise ApiError(
+                    422, "invalid_correction", "product_identity must be a non-empty string"
+                )
+            desc = desc.strip()
+            existing = conn.execute(
+                "SELECT id FROM product_identities WHERE description=?", (desc,)
+            ).fetchone()
+            if existing is None:
+                cur = conn.execute(
+                    "INSERT INTO product_identities (description) VALUES (?)", (desc,)
+                )
+                identity_id = cur.lastrowid
+                action = "mint"
+            else:
+                identity_id = existing[0]
+                action = "match"
+            product = {
+                "description": desc,
+                "action": action,
+                "matched_id": identity_id,
+                "confidence": "high",
+            }
+        if "condition" in body:
+            cond = body["condition"]
+            if cond not in router.CONDITIONS + ("unknown",):
+                raise ApiError(422, "invalid_correction", f"unknown condition {cond!r}")
+            condition = cond
+        if "bundle" in body:
+            items = body["bundle"]
+            valid_confidence = ("high", "medium", "low", "unknown")
+            if not isinstance(items, list) or any(
+                not isinstance(it, dict)
+                or not isinstance(it.get("description"), str)
+                or not it["description"].strip()
+                or it.get("confidence") not in valid_confidence
+                for it in items
+            ):
+                raise ApiError(
+                    422,
+                    "invalid_correction",
+                    "bundle must be a list of {description, confidence}",
+                )
+            bundle = items
+        sets: list[str] = []
+        args: list = []
+        if product is not None:
+            sets.append("product=?")
+            args.append(json.dumps(product))
+        if condition is not None:
+            sets.append("condition=?")
+            args.append(condition)
+        if bundle is not None:
+            sets.append("bundle=?")
+            args.append(json.dumps(bundle))
+        sets.append("corrected=1")
+        sets.append("status='enriched'")
+        updated = conn.execute(
+            f"UPDATE enrichments SET {', '.join(sets)} WHERE listing_id=?",
+            (*args, listing_id),
+        )
+        if updated.rowcount == 0:
+            conn.execute(
+                "INSERT INTO enrichments (listing_id, product, condition, bundle, "
+                "confidence, status, corrected) "
+                "VALUES (?, ?, ?, ?, ?, 'enriched', 1)",
+                (
+                    listing_id,
+                    json.dumps(product) if product is not None else None,
+                    condition,
+                    json.dumps(bundle) if bundle is not None else None,
+                    json.dumps("high"),
+                ),
+            )
+        if product is not None:
+            conn.execute(
+                "UPDATE listings SET product_identity_id=? WHERE id=?",
+                (identity_id, listing_id),
+            )
+        conn.commit()
+        row = conn.execute(
+            "SELECT product, condition, bundle FROM enrichments WHERE listing_id=?",
+            (listing_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    _send_json(
+        handler,
+        200,
+        {
+            "listing_id": listing_id,
+            "product": json.loads(row[0]) if row[0] else None,
+            "condition": row[1],
+            "bundle": json.loads(row[2]) if row[2] else None,
+            "corrected": True,
+            "status": "enriched",
+        },
+    )
+
+
 # --- Routing ---------------------------------------------------------------
 
 
@@ -913,6 +1547,44 @@ def handle(handler) -> None:
                 patch_listing(handler, parts[3])
                 return
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["product-identities"]:
+            if len(parts) == 3 and handler.command == "GET":
+                _send_json(handler, 200, list_identities(parse_qs(parsed.query)))
+                return
+            if len(parts) == 4:
+                if handler.command == "GET":
+                    get_identity(handler, parts[3])
+                    return
+                if handler.command == "PATCH":
+                    patch_identity(handler, parts[3])
+                    return
+            if len(parts) == 5 and handler.command == "POST":
+                if parts[4] == "merge":
+                    merge_identities(handler, parts[3])
+                    return
+                if parts[4] == "retune":
+                    retune_identity(handler, parts[3])
+                    return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["deals"]:
+            if len(parts) == 3 and handler.command == "GET":
+                _send_json(handler, 200, list_deals(parse_qs(parsed.query)))
+                return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["settings"]:
+            if len(parts) == 3:
+                if handler.command == "GET":
+                    get_settings(handler)
+                    return
+                if handler.command == "PATCH":
+                    patch_settings(handler)
+                    return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["enrichments"]:
+            if len(parts) == 4 and handler.command == "PATCH":
+                correct_enrichment(handler, parts[3])
+                return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
         if parts[2:3] != ["searches"]:
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
         if len(parts) == 3:
@@ -948,6 +1620,13 @@ def handle(handler) -> None:
                 return
             if action == "liveness" and handler.command == "GET":
                 get_liveness(handler, search_id)
+                return
+            if action == "run" and handler.command == "POST":
+                run_search(handler, search_id)
+                return
+        elif len(parts) == 6 and parts[4] == "rejections":
+            if handler.command == "DELETE":
+                restore_rejection(handler, parts[3], parts[5])
                 return
         raise ApiError(404, "not_found", f"No route for {parsed.path}")
     except ApiError as exc:

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS listings (
     availability TEXT NOT NULL DEFAULT 'live',
     availability_checked_at TEXT,
     product_identity_id INTEGER REFERENCES product_identities(id),
+    shipping_cost REAL,
     first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS enrichments (
     confidence TEXT,
     model TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
+    corrected INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -162,6 +164,17 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     picols = {r[1] for r in conn.execute("PRAGMA table_info(product_identities)")}
     if "synthesized_at" not in picols:
         conn.execute("ALTER TABLE product_identities ADD COLUMN synthesized_at TEXT")
+        conn.commit()
+    # Migrate DBs created before per-listing shipping + corrections (#56).
+    if "shipping_cost" not in lcols:
+        conn.execute("ALTER TABLE listings ADD COLUMN shipping_cost REAL")
+        conn.commit()
+    if "corrected" not in {
+        r[1] for r in conn.execute("PRAGMA table_info(enrichments)")
+    }:
+        conn.execute(
+            "ALTER TABLE enrichments ADD COLUMN corrected INTEGER NOT NULL DEFAULT 0"
+        )
         conn.commit()
     # Drop the dead per-search transcript table (superseded by chat sessions).
     conn.execute("DROP TABLE IF EXISTS conversations")

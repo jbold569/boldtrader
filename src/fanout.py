@@ -294,6 +294,13 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
     the row 'failed'. Returns True on success, False on permanent failure.
     """
     row = conn.execute("SELECT raw, authored_description FROM listings WHERE id=?", (lid,)).fetchone()
+    # A Correction is the user's word over the model's: never re-modeled,
+    # never overwritten (GLOSSARY: Correction, ticket #56).
+    fixed = conn.execute(
+        "SELECT corrected FROM enrichments WHERE listing_id=?", (lid,)
+    ).fetchone()
+    if fixed and fixed[0]:
+        return True
     if row is None:
         conn.execute("UPDATE enrichments SET status='failed' WHERE listing_id=?", (lid,))
         conn.commit()
@@ -337,6 +344,12 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
                     router.ENRICH_MODEL,
                     lid,
                 ),
+            )
+            # Shipping is known whether or not the identity resolved; the
+            # effective price needs it even for Unidentified listings (#56).
+            conn.execute(
+                "UPDATE listings SET shipping_cost=? WHERE id=?",
+                (detail.shipping_cost, lid),
             )
             if identity_id is not None:
                 conn.execute(
