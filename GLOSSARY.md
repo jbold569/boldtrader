@@ -17,7 +17,7 @@ What the buyer really pays for the thing they want: out-the-door price minus the
 _Avoid_: net price, real cost
 
 **Bundle**:
-A single listing that includes multiple things — the wanted product plus extra components, each extra itself a Product with its own identity. Flip value applies to the unwanted extras.
+A single listing that includes multiple things — the wanted product plus extra components, each extra itself resolvable to its own Product Identity. Components outside the Product Identity description are unwanted extras; flip value applies to them.
 _Avoid_: lot, package, set
 
 **Fair price**:
@@ -28,12 +28,13 @@ _Avoid_: market price, real price
 A single recorded data point: the effective price seen for a product in a given condition on a given day. The pricing database is built by accumulating these observations over time.
 _Avoid_: price point, data point
 
-**Product**:
-The canonical thing a listing is selling, identified by the app from the listing's own data (model numbers, specs), or by a user-authored description when the listing is too poorly described to parse automatically. Not from a user-maintained catalog. Price observations are pooled per product.
-_Avoid_: item, SKU, catalog entry
+**Product Identity**:
+A persisted prose description of a product of interest, synthesized from the union of matched listing context and tuned over time by human interaction — accepting, rejecting/restoring listings, and refining descriptions. It is the shared context a human or model uses to decide whether a Listing is the thing being sought. Created when a Bargain Search is made; every Bargain Search maps to exactly one Product Identity. Bundle components resolve to Product Identities through the same mechanism. Price observations pool per (Product Identity, Condition).
+_Avoid_: product string, product key
+
 
 **Unidentified listing**:
-A listing the app cannot resolve to a product — typically vague titles, missing model numbers, poor photos. Surfaced in a separate bucket rather than dropped; these often hide the best deals precisely because they're poorly described. Resolved by a user-authored description (see Grandma search).
+A listing the app cannot resolve to a Product Identity — typically vague titles, missing model numbers, poor photos. Surfaced in a separate bucket rather than dropped; these often hide the best deals precisely because they're poorly described. Resolved by a user-authored description (see Grandma search).
 _Avoid_: unmatched, failed listing
 
 **Grandma search**:
@@ -108,6 +109,9 @@ _Avoid_: recycler, liquidator
 **Enrichment**:
 The AI-extracted facts added to a Listing beyond what the marketplace exposes: resolved product identity, normalized condition, and the bundle's contents as a list of additional products. Enrichment is a first draft — the user's authored description always overrides it.
 _Avoid_: AI analysis, scoring, enhancement
+**Correction**:
+A user-fixed fact in place of a wrong Enrichment value. Like the authored description, a Correction is user truth: no later Enrichment pass overwrites it.
+_Avoid_: manual override, admin edit
 
 **Re-enrichment**:
 Re-queuing a Listing whose Enrichment failed or was never recorded. A user-initiated recovery: it never overwrites existing Enrichment, and because Enrichment re-reads the listing from the Marketplace, a re-enrichment reflects current marketplace data.

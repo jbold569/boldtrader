@@ -1,0 +1,5 @@
+# 0010. External agent surface: HTTP canonical, MCP thin facade
+
+**Status:** accepted
+
+Context: the native chat harness turned out to be a poor agent harness; the intended operator of BoldTrader is now an external harness (Claude Code, omp) driving the app the way the chat tried to. We decided the HTTP JSON API is the canonical agent surface. The MCP server (stdio subprocess, `python -m src.mcp_server`) is a thin facade over it — argument mapping and result shaping only, no domain logic — and skills are markdown workflows that teach an agent which calls to chain. The MCP facade calls the HTTP API rather than importing Python directly so the contract is proven identical to what the SPA consumes; any drift surfaces immediately, and the API remains the product. External agents get full write authority with no confirm ceremony: the human chose to operate through an external harness, which is the trust boundary. The chat's draft-confirm flow is unchanged — it governs chat only, per ADR 0008 §3.
