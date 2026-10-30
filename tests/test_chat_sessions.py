@@ -196,16 +196,10 @@ def test_user_row_persisted_even_when_model_fails(db, monkeypatch):
     assert saved == [{"role": "user", "content": "hello there"}]
 
 
-# --- existing conversations rows are untouched --------------------------------
+# --- dead conversations table is dropped on migration -------------------------
 
-def test_existing_conversations_rows_survive_init(db):
-    db.execute(
-        "INSERT INTO bargain_searches (summary, product_identity) VALUES ('old', 'old thing')"
-    )
-    db.execute(
-        "INSERT INTO conversations (bargain_search_id, role, content) VALUES (1, 'user', 'legacy row')"
-    )
-    db.commit()
-    init_db(os.environ["BOLDTRADER_DB"])  # idempotent re-init
-    rows = db.execute("SELECT role, content FROM conversations").fetchall()
-    assert rows == [("user", "legacy row")]
+def test_conversations_table_dropped_on_init(db):
+    rows = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'"
+    ).fetchall()
+    assert rows == []

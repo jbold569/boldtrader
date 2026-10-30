@@ -190,17 +190,13 @@ def test_delete_by_exact_summary_when_id_not_given(db, session, monkeypatch):
     assert search_row_exists(db, id_a)
 
 
-def test_delete_also_removes_rejects_and_conversations(db, session, monkeypatch):
+def test_delete_also_removes_rejects(db, session, monkeypatch):
     from src import chat as chat_mod
 
     id_a, _id_b = seed_two_searches(db)
     from tests.test_tools import seed_full_listing
 
     seed_full_listing(db, "l1")
-    db.execute(
-        "INSERT INTO conversations (bargain_search_id, role, content) VALUES (?, 'user', 'x')",
-        (id_a,),
-    )
     db.execute(
         "INSERT INTO rejects (bargain_search_id, listing_id, reason) VALUES (?, 'l1', 'bad')",
         (id_a,),
@@ -215,7 +211,7 @@ def test_delete_also_removes_rejects_and_conversations(db, session, monkeypatch)
     chat_mod.next_reply(
         [], f"delete search {id_a}", conn=db, session_id=session["id"]
     )
-    for table in ("conversations", "rejects"):
+    for table in ("rejects",):
         n = db.execute(
             f"SELECT COUNT(*) FROM {table} WHERE bargain_search_id=?", (id_a,)
         ).fetchone()[0]

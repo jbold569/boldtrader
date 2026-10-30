@@ -5,8 +5,7 @@ buying help). When a Bargain Search draft is ready, the LLM proposes it
 as a fenced JSON block; the user confirms or edits it on the
 confirmation screen, which creates the `bargain_searches` row. The full
 transcript is persisted on the session (`chat_sessions` +
-`session_messages`), never copied into the per-search `conversations`
-table.
+`session_messages`).
 """
 
 from __future__ import annotations
@@ -529,30 +528,14 @@ def get_search(conn: sqlite3.Connection, search_id: int) -> dict | None:
     }
 
 
-def append_message(conn: sqlite3.Connection, search_id: int, role: str, content: str) -> None:
-    conn.execute(
-        "INSERT INTO conversations (bargain_search_id, role, content) VALUES (?, ?, ?)",
-        (search_id, role, content),
-    )
-    conn.commit()
-
-
-def load_transcript(conn: sqlite3.Connection, search_id: int) -> list[dict]:
-    rows = conn.execute(
-        "SELECT role, content FROM conversations WHERE bargain_search_id=? ORDER BY rowid",
-        (search_id,),
-    ).fetchall()
-    return [{"role": r[0], "content": r[1]} for r in rows]
-
 
 def delete_search(conn: sqlite3.Connection, search_id: int) -> None:
     """Delete a Bargain Search and its own rows.
 
     Listings and enrichments are shared across searches and stay; only the
-    search's own records (search, transcript, rejects) are removed.
+    search's own records (search, rejects) are removed.
     """
     conn.execute("DELETE FROM rejects WHERE bargain_search_id=?", (search_id,))
-    conn.execute("DELETE FROM conversations WHERE bargain_search_id=?", (search_id,))
     conn.execute("DELETE FROM bargain_searches WHERE id=?", (search_id,))
     conn.commit()
 

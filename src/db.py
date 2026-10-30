@@ -25,16 +25,30 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
     version INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',
     listing_ids TEXT NOT NULL DEFAULT '{}',
+    product_identity_id INTEGER REFERENCES product_identities(id),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS conversations (
-    bargain_search_id INTEGER NOT NULL REFERENCES bargain_searches(id),
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS product_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    deal_threshold REAL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS price_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    listing_id TEXT NOT NULL REFERENCES listings(id),
+    product_identity_id INTEGER NOT NULL REFERENCES product_identities(id),
+    condition TEXT NOT NULL,
+    effective_price REAL NOT NULL,
+    observed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_obs_identity_condition_date
+    ON price_observations (product_identity_id, condition, observed_at);
 
 CREATE TABLE IF NOT EXISTS listings (
     id TEXT PRIMARY KEY,
@@ -42,6 +56,7 @@ CREATE TABLE IF NOT EXISTS listings (
     authored_description TEXT,
     availability TEXT NOT NULL DEFAULT 'live',
     availability_checked_at TEXT,
+    product_identity_id INTEGER REFERENCES product_identities(id),
     first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -75,6 +90,11 @@ CREATE TABLE IF NOT EXISTS session_messages (
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 """
 
@@ -119,4 +139,23 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
             "ALTER TABLE bargain_searches ADD COLUMN location TEXT NOT NULL DEFAULT 'Kenmore, WA'"
         )
         conn.commit()
+    # Migrate DBs created before Product Identity mapping existed (ticket #52).
+    if "product_identity_id" not in cols:
+        conn.execute(
+            "ALTER TABLE bargain_searches ADD COLUMN product_identity_id INTEGER REFERENCES product_identities(id)"
+        )
+        conn.commit()
+    if "product_identity_id" not in lcols:
+        conn.execute(
+            "ALTER TABLE listings ADD COLUMN product_identity_id INTEGER REFERENCES product_identities(id)"
+        )
+        conn.commit()
+    # Drop the dead per-search transcript table (superseded by chat sessions).
+    conn.execute("DROP TABLE IF EXISTS conversations")
+    conn.commit()
+    # Seed defaults without clobbering user-set values.
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('deal_threshold', '25')"
+    )
+    conn.commit()
     return conn
