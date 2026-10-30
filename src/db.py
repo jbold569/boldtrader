@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS product_identities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     description TEXT NOT NULL,
     deal_threshold REAL,
+    synthesized_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -149,6 +150,18 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
         conn.execute(
             "ALTER TABLE listings ADD COLUMN product_identity_id INTEGER REFERENCES product_identities(id)"
         )
+        conn.commit()
+    # Migrate DBs created before the living-description lifecycle (#55):
+    # the synthesis timestamp on the identity, the stale-verdict list on
+    # the search.
+    if "stale_lids" not in cols:
+        conn.execute(
+            "ALTER TABLE bargain_searches ADD COLUMN stale_lids TEXT NOT NULL DEFAULT '[]'"
+        )
+        conn.commit()
+    picols = {r[1] for r in conn.execute("PRAGMA table_info(product_identities)")}
+    if "synthesized_at" not in picols:
+        conn.execute("ALTER TABLE product_identities ADD COLUMN synthesized_at TEXT")
         conn.commit()
     # Drop the dead per-search transcript table (superseded by chat sessions).
     conn.execute("DROP TABLE IF EXISTS conversations")

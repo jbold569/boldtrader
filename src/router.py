@@ -246,6 +246,61 @@ def sift(
     raise RouterError(f"sift call failed after retry: {last}") from last
 
 
+_SYNTH_SYSTEM = """You write the Product Identity description for a deal-hunting
+system. The identity is one prose sentence naming the exact product a buyer
+is hunting: make, model, and the defining specs. It is what the sift model
+will judge every future listing against, so it must be specific enough to
+separate the wanted product from near-misses, and free of price, condition,
+and seller copy.
+
+Reply with ONLY the description sentence. No preamble, no quotes, no JSON."""
+
+
+def synthesize_description(evidence: dict, model: str = CHAT_MODEL) -> str:
+    """Draft the identity prose from an evidence pack (ticket #55, ADR 0012).
+
+    The pack carries the mode ("synthesize" first draft, "retune" revision),
+    the matched listing context, and for a retune the counter-evidence:
+    rejects with reasons, authored descriptions, the current description,
+    and the deal threshold. Plain chat (not the decision lane): this is
+    creative writing, not classification.
+    """
+    parts = [evidence.get("current_description") or "(none yet)"]
+    if evidence.get("mode") == "retune":
+        parts.append(
+            "Rejections and corrections since this description was written:\n"
+            + json.dumps(
+                {
+                    "rejects": evidence.get("rejects", []),
+                    "authored_descriptions": evidence.get("authored_descriptions", []),
+                    "deal_threshold": evidence.get("deal_threshold"),
+                },
+                ensure_ascii=False,
+            )
+        )
+    parts.append(
+        "Listings matching the search so far:\n"
+        + json.dumps(evidence.get("matched", []), ensure_ascii=False)
+    )
+    parts.append(
+        "Rewrite the description so it names the product these listings "
+        "actually are, and nothing they rejected."
+    )
+    content = _chat(
+        [
+            {"role": "system", "content": _SYNTH_SYSTEM},
+            {"role": "user", "content": "\n\n".join(parts)},
+        ],
+        model=model,
+        max_tokens=200,
+    )
+    text = content.strip().strip('"')
+    if not text:
+        raise RouterError("synthesis returned empty description")
+    return text
+
+
+
 def chat(messages: list[dict], model: str = CHAT_MODEL, max_tokens: int = 2000) -> str:
     """Free-form chat completion (Bargain Search authoring)."""
     return _chat(messages, model=model, max_tokens=max_tokens)

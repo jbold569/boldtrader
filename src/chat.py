@@ -16,7 +16,7 @@ import re
 import sqlite3
 from .db import get_connection
 
-from . import router
+from . import identity, router
 from .tools import get_listing, search_listings, web_search
 
 # The four chat tools (tickets #6, #10, #11; ADR 0007): product identification
@@ -472,10 +472,15 @@ def _touch(conn: sqlite3.Connection, session_id: int) -> None:
 
 
 def create_search(conn: sqlite3.Connection, draft: dict) -> int:
-    """Sign the contract: insert the confirmed draft as a new Bargain Search."""
+    """Sign the contract: insert the confirmed draft as a new Bargain Search.
+
+    The draft's product_identity phrase seeds a fresh Product Identity row
+    (ticket #55, ADR 0012); the identity's living description is written
+    from evidence at search_complete, not carried by the phrase."""
+    identity_id = identity.seed_identity(conn, draft["product_identity"])
     cur = conn.execute(
-        "INSERT INTO bargain_searches (summary, product_identity, location, target_price, queries, exclusions, listing_ids) "
-        "VALUES (?, ?, ?, ?, ?, ?, '{}')",
+        "INSERT INTO bargain_searches (summary, product_identity, location, target_price, queries, exclusions, listing_ids, product_identity_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, '{}', ?)",
         (
             draft["summary"],
             draft["product_identity"],
@@ -483,6 +488,7 @@ def create_search(conn: sqlite3.Connection, draft: dict) -> int:
             draft["target_price"],
             json.dumps(draft["queries"]),
             json.dumps(draft["exclusions"]),
+            identity_id,
         ),
     )
     conn.commit()

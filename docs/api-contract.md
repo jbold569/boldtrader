@@ -96,6 +96,7 @@ Envelope `items` are result cards:
   "marketplace": "offerup",
   "image_url": "https://...",
   "verdict": "match",
+  "verdict_stale": false,
   "availability": "live",
   "authored_description": null,
   "enrichment": {
@@ -115,7 +116,7 @@ Envelope `items` are result cards:
 }
 ```
 
-`enrichment.status` enum: `pending`, `enriched`, `failed`; `enrichment` is `null` when no Enrichment record exists. `product.action` enum: `match` (the listing resolved to the existing Product Identity named by `matched_id`), `mint` (a new Product Identity was created; `matched_id` is `null`), `unknown` (Unidentified — no identity was minted). `confidence` is the identity-resolution confidence (`high|medium|low|unknown`); a mint only persists at `high`, so `mint` and `confidence: "high"` always travel together. `bundle` entries are typed: each extra item carries its own `confidence`. Field names follow `GLOSSARY.md` (asking price = seller's posted price; `effective_price` is not carried on the card — it is deal-math, not stored data).
+`verdict_stale` is `true` when the card's `verdict` was judged against a Product Identity description that has since been rewritten (ticket #55, ADR 0012): the verdict predates the current description and no re-sift has run over it. It flips to `true` the moment the description changes, and back to `false` when the search is re-run and the listings are re-sifted against the fresh description. `enrichment.status` enum: `pending`, `enriched`, `failed`; `enrichment` is `null` when no Enrichment record exists. `product.action` enum: `match` (the listing resolved to the existing Product Identity named by `matched_id`), `mint` (a new Product Identity was created; `matched_id` is `null`), `unknown` (Unidentified — no identity was minted). `confidence` is the identity-resolution confidence (`high|medium|low|unknown`); a mint only persists at `high`, so `mint` and `confidence: "high"` always travel together. `bundle` entries are typed: each extra item carries its own `confidence`. Field names follow `GLOSSARY.md` (asking price = seller's posted price; `effective_price` is not carried on the card — it is deal-math, not stored data).
 
 ### Per-search actions
 

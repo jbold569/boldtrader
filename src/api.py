@@ -414,11 +414,12 @@ def search_results(search_id: str, qs: dict) -> dict:
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT listing_ids FROM bargain_searches WHERE id=?", (key,)
+            "SELECT listing_ids, stale_lids FROM bargain_searches WHERE id=?", (key,)
         ).fetchone()
         if row is None:
             raise ApiError(404, "search_not_found", f"No bargain search with id {search_id}")
         verdicts: dict = json.loads(row[0])
+        stale_lids = set(json.loads(row[1])) if row[1] else set()
         cards: list[dict] = []
         if verdicts:
             placeholders = ",".join("?" * len(verdicts))
@@ -460,6 +461,7 @@ def search_results(search_id: str, qs: dict) -> dict:
                         "marketplace": data.get("marketplace") or "",
                         "image_url": data.get("image_url") or "",
                         "verdict": verdict,
+                        "verdict_stale": lid in stale_lids,
                         "availability": card_avail,
                         "authored_description": authored,
                         "enrichment": enrichment,

@@ -19,11 +19,9 @@ import sqlite3
 import threading
 import time
 
-from . import dealmath, events, liveness, router
-
+from . import dealmath, events, identity, liveness, router
 from .db import get_connection
 from .marketplace import Listing, Marketplace
-
 
 
 log = logging.getLogger("boldtrader.fanout")
@@ -52,7 +50,8 @@ def fan_out(
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT queries, product_identity, exclusions FROM bargain_searches WHERE id=?",
+            "SELECT queries, product_identity, exclusions, product_identity_id "
+            "FROM bargain_searches WHERE id=?",
             (search_id,),
         ).fetchone()
         if row is None:
@@ -60,8 +59,17 @@ def fan_out(
         queries = json.loads(row[0])
         product_identity = row[1]
         exclusions = json.loads(row[2])
+        # Once the identity is synthesized, sift judges against the living
+        # description, not the user's seed phrase (ticket #55, ADR 0012).
+        if row[3] is not None:
+            desc = conn.execute(
+                "SELECT description, synthesized_at FROM product_identities WHERE id=?",
+                (row[3],),
+            ).fetchone()
+            if desc and desc[1] is not None:
+                product_identity = desc[0]
         conn.execute(
-            "UPDATE bargain_searches SET status='running', listing_ids='{}' WHERE id=?",
+            "UPDATE bargain_searches SET status='running', listing_ids='{}', stale_lids='[]' WHERE id=?",
             (search_id,),
         )
         conn.commit()
@@ -131,6 +139,12 @@ def fan_out(
         if not queued_any:
             # Nothing entered the enrichment queue, so the worker's drain
             # never flips this search; the completion happens right here.
+            # The identity update rides the same transition it would get
+            # from _refresh_progress (ticket #55).
+            try:
+                identity.update_identity_from_search(conn, search_id)
+            except Exception:
+                log.exception("identity update failed for #%s", search_id)
             events.publish(
                 "search_complete", {"search_id": search_id, "match_count": 0}
             )

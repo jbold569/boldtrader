@@ -32,6 +32,7 @@ CARD_KEYS = {
     "marketplace",
     "image_url",
     "verdict",
+    "verdict_stale",
     "availability",
     "authored_description",
     "enrichment",

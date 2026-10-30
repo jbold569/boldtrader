@@ -47,9 +47,14 @@ def test_new_tables_exist(db):
 
 
 def test_product_identities_columns(db):
-    assert {"id", "description", "created_at", "updated_at", "deal_threshold"} == columns(
-        db, "product_identities"
-    )
+    assert {
+        "id",
+        "description",
+        "created_at",
+        "updated_at",
+        "deal_threshold",
+        "synthesized_at",
+    } == columns(db, "product_identities")
 
 
 def test_price_observations_columns(db):
