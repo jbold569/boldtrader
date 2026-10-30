@@ -19,7 +19,7 @@ import sqlite3
 import threading
 import time
 
-from . import events, liveness, router
+from . import dealmath, events, liveness, router
 
 from .db import get_connection
 from .marketplace import Listing, Marketplace
@@ -329,6 +329,25 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
                     "UPDATE listings SET product_identity_id=? WHERE id=?",
                     (identity_id, lid),
                 )
+                # One observation per successful enrichment (ticket #54):
+                # what the market asked for this thing today, net of the
+                # resale value of the bundled extras. Same transaction, so
+                # a listing either carries its observation or doesn't exist.
+                if listing.price is not None:
+                    flip = dealmath.flip_value(
+                        conn,
+                        record["bundle"],
+                        product["description"],
+                    )
+                    dealmath.record_observation(
+                        conn,
+                        lid,
+                        identity_id,
+                        record["condition"],
+                        dealmath.effective_price(
+                            float(listing.price), detail.shipping_cost, flip
+                        ),
+                    )
             conn.commit()
             log.info("enriched %s as identity %s", lid, identity_id)
             events.publish("enrichment", {"listing_id": lid, "status": "enriched"})
