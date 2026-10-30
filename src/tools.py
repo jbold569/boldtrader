@@ -54,9 +54,8 @@ def search_listings(keyword: str) -> str:
         condition = r["condition"] if r["condition"] else "?"
         if r["e_status"] == "enriched" and r["product"]:
             product = json.loads(r["product"])
-            resolved = " ".join(str(v) for v in product.values() if v)
             e_cond = r["e_condition"] or "?"
-            status = f"Enriched: {resolved}, condition: {e_cond}"
+            status = f"Enriched: {product['description']}, condition: {e_cond}"
         else:
             status = "not enriched"
         blocks.append(f"Title: {r['title']}\nPrice: {price}\nCondition: {condition}\nEnrichment: {status}")
@@ -94,12 +93,14 @@ def get_listing(id: str) -> str:
     lines.append(f"Availability: {row['availability'] or 'live'}")
     if row["status"] == "enriched" and row["product"]:
         product = json.loads(row["product"])
-        resolved = " ".join(str(v) for v in product.values() if v)
-        bundle = ", ".join(json.loads(row["bundle"])) if row["bundle"] else "none"
-        confidence = json.dumps(row["confidence"]) if row["confidence"] else "none"
+        bundle = (
+            ", ".join(b["description"] for b in json.loads(row["bundle"]))
+            if row["bundle"]
+            else "none"
+        )
         lines.append(
-            f"Enrichment: {resolved}, condition: {row['condition']}, "
-            f"bundle: {bundle}, confidence: {confidence}"
+            f"Enrichment: {product['description']}, condition: {row['condition']}, "
+            f"bundle: {bundle}, confidence: {product['confidence']}"
         )
     else:
         lines.append("Enrichment: none")

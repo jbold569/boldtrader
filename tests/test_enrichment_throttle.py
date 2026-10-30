@@ -46,12 +46,16 @@ class DeadMP:
         raise Boom("name or service not known")
 
 
-def good_enrich(text, authored=""):
+def good_enrich(text, candidates=None, authored=""):
     return {
-        "product": {"name": "widget"},
-        "condition": "good",
-        "bundle": ["power cord"],
-        "confidence": 0.9,
+        "product": {
+            "description": "Dell OptiPlex 3060",
+            "action": "mint",
+            "matched_id": None,
+            "confidence": "high",
+        },
+        "condition": "complete",
+        "bundle": [{"description": "power cord", "confidence": "high"}],
     }
 
 

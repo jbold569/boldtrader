@@ -77,12 +77,16 @@ def fake_sift_no_match(summary, product_identity, exclusions=None):
     return "not_match"
 
 
-def fake_enrich(text, authored=""):
+def fake_enrich(text, candidates=None, authored=""):
     return {
-        "product": {"name": "widget"},
-        "condition": "good",
-        "bundle": ["power cord"],
-        "confidence": 0.9,
+        "product": {
+            "description": "HP Z440 Workstation",
+            "action": "mint",
+            "matched_id": None,
+            "confidence": "high",
+        },
+        "condition": "complete",
+        "bundle": [{"description": "keyboard", "confidence": "high"}],
     }
 
 
@@ -270,7 +274,7 @@ def test_enrichment_success_emits_enriched_event(site):
 def test_enrichment_failure_emits_failed_event(site, monkeypatch):
     import src.fanout as fanout_mod
 
-    def boom_enrich(text, authored=""):
+    def boom_enrich(text, candidates=None, authored=""):
         raise RuntimeError("model exploded")
 
     f = open_events(site)

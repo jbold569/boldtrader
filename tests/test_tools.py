@@ -76,7 +76,10 @@ def test_keyword_hits_raw_text_only(db):
 def test_enriched_hit_shows_resolved_product_and_condition(db):
     seed_listing(db, "a1", "office chair")
     seed_enrichment(
-        db, "a1", {"manufacturer": "Herman Miller", "model": "Aeron", "config": "size B"}, "excellent"
+        db, "a1",
+        {"description": "Herman Miller Aeron size B", "action": "mint",
+         "matched_id": None, "confidence": "high"},
+        "excellent",
     )
     db.commit()
     out = search_listings("office chair")
@@ -188,11 +191,18 @@ def seed_full_enrichment(conn, lid="a1"):
         "confidence, status) VALUES (?, ?, ?, ?, ?, 'enriched')",
         (
             lid,
-            json.dumps({"manufacturer": "Dell", "model": "OptiPlex 3060", "config": "i5-8500/8GB/256GB"}),
+            json.dumps({
+                "description": "Dell OptiPlex 3060, i5-8500/8GB/256GB",
+                "action": "mint",
+                "matched_id": None,
+                "confidence": "high",
+            }),
             "complete",
-            json.dumps(["power cord", "stand"]),
-            json.dumps({"manufacturer": "high", "model": "high", "config": "medium",
-                       "condition": "low", "bundle": "medium"}),
+            json.dumps([
+                {"description": "power cord", "confidence": "high"},
+                {"description": "stand", "confidence": "low"},
+            ]),
+            json.dumps("high"),
         ),
     )
     conn.commit()

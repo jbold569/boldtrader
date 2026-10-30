@@ -114,15 +114,21 @@ def seed_listing(
 
 
 def seed_enrichment(conn, lid, status="enriched"):
+    product = {
+        "description": "HP Z440, Xeon E5-2620 v3/16GB/512GB SSD",
+        "action": "match",
+        "matched_id": 1,
+        "confidence": "high",
+    }
     conn.execute(
         "INSERT INTO enrichments (listing_id, product, condition, bundle, "
         "confidence, status) VALUES (?, ?, ?, ?, ?, ?)",
         (
             lid,
-            json.dumps({"manufacturer": "HP", "model": "Z440"}),
-            "good",
-            json.dumps(["keyboard"]),
-            json.dumps({"model": "high"}),
+            json.dumps(product),
+            "complete",
+            json.dumps([{"description": "keyboard", "confidence": "high"}]),
+            json.dumps("high"),
             status,
         ),
     )
@@ -411,10 +417,17 @@ def test_result_card_shape(db, site):
     assert card["authored_description"] is None
     assert set(card["enrichment"]) == ENRICHMENT_KEYS
     assert card["enrichment"]["status"] == "enriched"
-    assert card["enrichment"]["product"] == {"manufacturer": "HP", "model": "Z440"}
-    assert card["enrichment"]["condition"] == "good"
-    assert card["enrichment"]["bundle"] == ["keyboard"]
-    assert card["enrichment"]["confidence"] == {"model": "high"}
+    assert card["enrichment"]["product"] == {
+        "description": "HP Z440, Xeon E5-2620 v3/16GB/512GB SSD",
+        "action": "match",
+        "matched_id": 1,
+        "confidence": "high",
+    }
+    assert card["enrichment"]["condition"] == "complete"
+    assert card["enrichment"]["bundle"] == [
+        {"description": "keyboard", "confidence": "high"}
+    ]
+    assert card["enrichment"]["confidence"] == "high"
 
 
 def test_enrichment_is_null_when_absent(db, site):

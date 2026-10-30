@@ -100,15 +100,22 @@ Envelope `items` are result cards:
   "authored_description": null,
   "enrichment": {
     "status": "enriched",
-    "product": {},
+    "product": {
+      "description": "Dell OptiPlex 3060, i5-8500/8GB/256GB SSD",
+      "action": "match",
+      "matched_id": 3,
+      "confidence": "high"
+    },
     "condition": "complete",
-    "bundle": [],
-    "confidence": {}
+    "bundle": [
+      {"description": "power cord", "confidence": "high"}
+    ],
+    "confidence": "high"
   }
 }
 ```
 
-`enrichment.status` enum: `pending`, `enriched`, `failed`; `enrichment` is `null` when no Enrichment record exists. Field names follow `GLOSSARY.md` (asking price = seller's posted price; `effective_price` is not carried on the card — it is deal-math, not stored data).
+`enrichment.status` enum: `pending`, `enriched`, `failed`; `enrichment` is `null` when no Enrichment record exists. `product.action` enum: `match` (the listing resolved to the existing Product Identity named by `matched_id`), `mint` (a new Product Identity was created; `matched_id` is `null`), `unknown` (Unidentified — no identity was minted). `confidence` is the identity-resolution confidence (`high|medium|low|unknown`); a mint only persists at `high`, so `mint` and `confidence: "high"` always travel together. `bundle` entries are typed: each extra item carries its own `confidence`. Field names follow `GLOSSARY.md` (asking price = seller's posted price; `effective_price` is not carried on the card — it is deal-math, not stored data).
 
 ### Per-search actions
 
@@ -118,7 +125,11 @@ Envelope `items` are result cards:
 | POST | `/api/v1/searches/{id}/reenrichment` | empty → `201 {"requeued": 12}` |
 | GET | `/api/v1/searches/{id}/liveness` | → `{"done": true, "banner": "", "dead": []}` |
 
-Rejections are scoped to the search (glossary: feeding the exclusion list for the next sift). Re-enrichment never overwrites existing Enrichment (glossary definition). Liveness response keeps today's shape.
+Rejections are scoped to the search (glossary: feeding the exclusion list for the next sift). Re-enrichment never overwrites existing Enrichment (glossary definition). Liveness response keeps today's shape. The one-time re-enrichment wave for listings enriched before the Product Identity change: run this once per existing search (the endpoint re-queues only the missing/failed rows for that search's match/unsure listings, so it is safe to re-run):
+
+```
+curl -s -X POST http://localhost:10000/api/v1/searches/<ID>/reenrichment
+```
 
 ### Marketplace search (ad-hoc)
 

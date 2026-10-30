@@ -39,7 +39,7 @@ SIFT_CONFIDENCE_FLOOR = 0.5
 CONDITIONS = ("complete", "cosmetic damage", "missing parts", "for parts", "refurbished")
 _CONFIDENCE = ("high", "medium", "low", "unknown")
 _LABELS = ("match", "not_match", "unsure")
-_PRODUCT_FIELDS = ("manufacturer", "model", "config")
+_ACTIONS = ("match", "mint", "unknown")
 
 
 class RouterError(RuntimeError):
@@ -83,68 +83,107 @@ def _extract_json(content: str) -> dict:
     return obj
 
 
-_ENRICH_SYSTEM = f"""You extract structured facts from used-hardware marketplace listings.
+_ENRICH_SYSTEM = f"""You read a used-hardware marketplace listing and decide what the
+main product actually is, against the identities we already track.
 Reply with ONLY a JSON object in this exact shape, no prose:
 
 {{
   "product": {{
-    "manufacturer": "<string or 'unknown'>",
-    "model": "<string or 'unknown'>",
-    "config": "<string or 'unknown'>"
+    "description": "<one prose sentence naming the main product and its defining specs>",
+    "action": "<match|mint|unknown>",
+    "matched_id": <int or null>,
+    "confidence": "<high|medium|low|unknown>"
   }},
   "condition": "<one of: {', '.join(CONDITIONS)}, or 'unknown'>",
-  "bundle": ["<each extra item included beyond the main product, short name>"],
-  "confidence": {{
-    "manufacturer": "<high|medium|low|unknown>",
-    "model": "<high|medium|low|unknown>",
-    "config": "<high|medium|low|unknown>",
-    "condition": "<high|medium|low|unknown>",
-    "bundle": "<high|medium|low|unknown>"
-  }}
+  "bundle": [
+    {{"description": "<each extra item included beyond the main product>",
+      "confidence": "<high|medium|low|unknown>"}}
+  ]
 }}
 
 Rules:
-- A field you cannot fill from the listing text is "unknown". Never guess.
-- "config" is the spec summary: CPU, RAM, storage, etc.
-- "bundle" lists only extras beyond the main product; use [] if none.
-- confidence is your certainty in that field; "unknown" when the field is "unknown"."""
+- "action" is your verdict against the candidate identities listed with
+  the listing. "match" = the listing IS one of those candidates: set
+  "matched_id" to its id. "mint" = the listing is clearly a different,
+  identifiable product that none of the candidates covers: "matched_id"
+  is null. "unknown" = you cannot tell what the product is: "matched_id"
+  is null and "description" is "unknown".
+- Prefer "match". Only mint when you are confident the product is
+  genuinely distinct from every candidate. If you are not confident, say
+  "unknown" — a wrong mint is worse than an unidentified listing.
+- "description" is how a human would say the product out loud: make,
+  model, and the specs that distinguish it. Keep it stable and specific;
+  do not restate condition, price, or seller copy.
+- "confidence" is your certainty in the identity resolution, not the prose.
+- "bundle" holds extras beyond the main product (cables, remotes, stands).
+  Use [] if there are none. Each entry is its own product with its own
+  confidence; "unknown" is not a bundle entry.
+- A buyer's note overrides the seller's text where they disagree; trust
+  the buyer.
+- Never guess a field you cannot fill: use "unknown"."""
 
 
 def _validate_enrichment(record: dict) -> dict:
-    """Enforce the enrichment schema; raise RouterError on any violation."""
+    """Enforce the enrichment schema; raise RouterError on any violation.
+
+    The shape is checked strictly because the record is persisted verbatim
+    and every downstream reader (identity resolution, deal math, the SPA)
+    assumes it. A model reply that misses the contract is a failed
+    enrichment, not a partial one.
+    """
     product = record.get("product")
     if not isinstance(product, dict):
         raise RouterError("missing 'product' object")
-    for field in _PRODUCT_FIELDS:
-        if not isinstance(product.get(field), str):
-            raise RouterError(f"product.{field} must be a string or 'unknown'")
+    description = product.get("description")
+    if not isinstance(description, str) or not description.strip():
+        raise RouterError("product.description must be a non-empty string")
+    action = product.get("action")
+    if action not in _ACTIONS:
+        raise RouterError(f"product.action {action!r} not in {_ACTIONS}")
+    matched_id = product.get("matched_id")
+    if action == "match":
+        if not isinstance(matched_id, int) or isinstance(matched_id, bool):
+            raise RouterError("product.action 'match' requires an integer matched_id")
+    elif matched_id is not None:
+        raise RouterError(f"product.action {action!r} requires matched_id null")
+    if product.get("confidence") not in _CONFIDENCE:
+        raise RouterError(f"product.confidence must be one of {_CONFIDENCE}")
     condition = record.get("condition")
     if condition not in CONDITIONS + ("unknown",):
         raise RouterError(f"condition {condition!r} not in the fixed set")
     bundle = record.get("bundle")
-    if not isinstance(bundle, list) or not all(isinstance(x, str) for x in bundle):
-        raise RouterError("bundle must be a list of strings")
-    confidence = record.get("confidence")
-    if not isinstance(confidence, dict):
-        raise RouterError("missing 'confidence' object")
-    for field in _PRODUCT_FIELDS + ("condition", "bundle"):
-        if confidence.get(field) not in _CONFIDENCE:
-            raise RouterError(f"confidence.{field} must be one of {_CONFIDENCE}")
+    if not isinstance(bundle, list):
+        raise RouterError("bundle must be a list")
+    for item in bundle:
+        if not isinstance(item, dict):
+            raise RouterError("bundle entries must be objects")
+        if not isinstance(item.get("description"), str) or not item["description"].strip():
+            raise RouterError("bundle.description must be a non-empty string")
+        if item.get("confidence") not in _CONFIDENCE:
+            raise RouterError(f"bundle.confidence must be one of {_CONFIDENCE}")
     return record
 
 
-def enrich(listing_text: str, authored: str = "", model: str = ENRICH_MODEL) -> dict:
-    """Extract Enrichment fields from full listing text via the big model.
+def enrich(
+    listing_text: str,
+    candidates: list[dict] | None = None,
+    authored: str = "",
+    model: str = ENRICH_MODEL,
+) -> dict:
+    """Resolve the main product of a listing via the big model.
 
-    `authored` is the user's own description of the listing, appended as
-    extra context — it supplements the listing text, and where the two
-    disagree the user's account wins (per the glossary: authored overrides
-    AI enrichment, so the model is told to trust it over the seller's text).
+    `candidates` is the existing Product Identity list (id + description)
+    the model chooses from; an empty list means nothing is tracked yet, so
+    every answer is a mint or unknown. `authored` is the buyer's own
+    account of the listing and overrides the seller's text (GLOSSARY:
+    Correction).
 
-    Strict parse: a malformed or contract-violating response raises RouterError
-    (a failed enrichment) — never a partial guess.
+    Strict parse: a malformed or contract-violating response raises
+    RouterError (a failed enrichment) — never a partial guess.
     """
-    user = listing_text
+    lines = [f"{c['id']}: {c['description']}" for c in candidates or []]
+    user = "Known product identities:\n" + ("\n".join(lines) if lines else "(none)")
+    user += "\n\n---\nListing text:\n" + listing_text
     if authored.strip():
         user += (
             "\n\n---\nBuyer's note about this listing (trust this over the "

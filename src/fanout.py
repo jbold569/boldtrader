@@ -269,7 +269,12 @@ def reenrich_search(conn: sqlite3.Connection, search_id: int) -> int:
 
 
 def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], lid: str) -> bool:
-    """Enrich one listing: fetch detail, run the big model, write the record.
+    """Enrich one listing: fetch detail, resolve its identity, write the record.
+
+    The existing identity list travels with the listing so the model can pick
+    a match instead of inventing near-duplicates. A mint only lands when the
+    model is confident (high); anything weaker leaves the listing in the
+    Unidentified bucket rather than polluting identity space.
 
     Retries once (after a short backoff) on failure; a second failure marks
     the row 'failed'. Returns True on success, False on permanent failure.
@@ -281,30 +286,55 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
         events.publish("enrichment", {"listing_id": lid, "status": "failed"})
         return False
     raw, authored = row[0], row[1] or ""
+    # Read candidates before the model call so no write lock spans the latency.
+    candidates = [
+        {"id": r[0], "description": r[1]}
+        for r in conn.execute(
+            "SELECT id, description FROM product_identities ORDER BY id ASC LIMIT 20"
+        )
+    ]
     for attempt in range(2):
         try:
             listing = Listing(**json.loads(raw))
             mp = marketplaces[listing.marketplace]
             detail = mp.fetch_detail(listing)
             text = f"{listing.title}\n\n{detail.description}"
-            record = router.enrich(text, authored=authored)
+            record = router.enrich(text, candidates=candidates, authored=authored)
+            product = record["product"]
+            # Authored wins outright (GLOSSARY: Correction): the buyer's own
+            # description becomes the identity, never the model's guess.
+            if authored.strip():
+                product = {
+                    "description": authored.strip(),
+                    "matched_id": None,
+                    "action": "mint",
+                    "confidence": "high",
+                }
+                record["product"] = product
+            identity_id = _resolve_identity(conn, product)
             conn.execute(
                 "UPDATE enrichments SET product=?, condition=?, bundle=?, confidence=?, "
                 "model=?, status='enriched' WHERE listing_id=?",
                 (
-                    json.dumps(record["product"]),
+                    json.dumps(product),
                     record["condition"],
                     json.dumps(record["bundle"]),
-                    json.dumps(record["confidence"]),
+                    json.dumps(product["confidence"]),
                     router.ENRICH_MODEL,
                     lid,
                 ),
             )
+            if identity_id is not None:
+                conn.execute(
+                    "UPDATE listings SET product_identity_id=? WHERE id=?",
+                    (identity_id, lid),
+                )
             conn.commit()
-            log.info("enriched %s", lid)
+            log.info("enriched %s as identity %s", lid, identity_id)
             events.publish("enrichment", {"listing_id": lid, "status": "enriched"})
             return True
         except Exception as exc:
+            conn.rollback()
             log.warning("enrich attempt %d failed for %s: %s", attempt + 1, lid, exc)
             if attempt == 0:
                 time.sleep(ENRICH_RETRY_BACKOFF_SECONDS)
@@ -315,6 +345,30 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
     log.warning("enrichment failed permanently for %s", lid)
     events.publish("enrichment", {"listing_id": lid, "status": "failed"})
     return False
+
+
+def _resolve_identity(conn: sqlite3.Connection, product: dict) -> int | None:
+    """Return the listings.product_identity_id for this resolution.
+
+    "match" points at the existing row (if it still exists — the table can
+    be curated between the read and now); "mint" inserts one, but only at
+    high confidence; "unknown" mints nothing, which is the Unidentified
+    bucket.
+    """
+    action = product["action"]
+    if action == "match":
+        matched = product["matched_id"]
+        exists = conn.execute(
+            "SELECT 1 FROM product_identities WHERE id=?", (matched,)
+        ).fetchone()
+        return matched if exists else None
+    if action == "mint" and product["confidence"] == "high":
+        cur = conn.execute(
+            "INSERT INTO product_identities (description) VALUES (?)",
+            (product["description"],),
+        )
+        return cur.lastrowid
+    return None
 
 
 def enrichment_worker(
