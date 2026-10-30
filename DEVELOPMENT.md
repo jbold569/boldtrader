@@ -23,6 +23,16 @@ BoldTrader dev server:
 .venv/bin/python -m src.server --port 10000
 ```
 
+The MCP stdio facade (ADR 0010) lets an external agent harness drive the same
+API:
+
+```bash
+.venv/bin/python -m src.mcp_server     # expects the server on :10000
+BOLDTRADER_API=http://127.0.0.1:10001 .venv/bin/python -m src.mcp_server
+```
+
+It probes the API at startup and dies with instructions if it is not up.
+
 The liveness sweep (labels sold/deleted listings "no longer available") is
 kicked off the first time a board is opened (`/bargains/:id`, which polls
 `GET /api/v1/searches/{id}/liveness`) and runs in a background thread.
