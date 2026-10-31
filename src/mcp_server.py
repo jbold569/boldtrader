@@ -92,10 +92,10 @@ _TOOLS = [
             "(active|running|enriching|complete), match_count, timestamps."
         ),
         "method": "GET",
-        "path": "/searches/{id}",
-        "path_args": ["id"],
+        "path": "/searches/{search_id}",
+        "path_args": ["search_id"],
         "body_args": [],
-        "props": {"id": _INT},
+        "props": {"search_id": _INT},
     },
     {
         "name": "update_search",
@@ -105,8 +105,8 @@ _TOOLS = [
             "field rules as create_search."
         ),
         "method": "PATCH",
-        "path": "/searches/{id}",
-        "path_args": ["id"],
+        "path": "/searches/{search_id}",
+        "path_args": ["search_id"],
         "body_args": [
             "summary",
             "product_identity",
@@ -117,6 +117,7 @@ _TOOLS = [
         ],
         "required": [],
         "props": {
+            "search_id": _INT,
             "summary": _STR,
             "product_identity": _STR,
             "queries": _STRS,
@@ -129,10 +130,10 @@ _TOOLS = [
         "name": "delete_search",
         "description": "Delete a Bargain Search. Irreversible.",
         "method": "DELETE",
-        "path": "/searches/{id}",
-        "path_args": ["id"],
+        "path": "/searches/{search_id}",
+        "path_args": ["search_id"],
         "body_args": [],
-        "props": {"id": _INT},
+        "props": {"search_id": _INT},
     },
     {
         "name": "run_search",
@@ -162,6 +163,7 @@ _TOOLS = [
         "path_args": ["search_id"],
         "body_args": [],
         "props": {
+            "search_id": _INT,
             "verdict": _STR,
             "max_price": _NUM,
             "availability": _STR,
@@ -203,7 +205,7 @@ _TOOLS = [
         "path_args": ["id"],
         "body_args": ["authored_description"],
         "required": ["authored_description"],
-        "props": {"authored_description": _STR},
+        "props": {"id": _INT, "authored_description": _STR},
     },
     {
         "name": "create_rejection",
@@ -217,7 +219,7 @@ _TOOLS = [
         "path_args": ["search_id"],
         "body_args": ["listing_id", "reason"],
         "required": ["listing_id", "reason"],
-        "props": {"listing_id": _STR, "reason": _STR},
+        "props": {"search_id": _INT, "listing_id": _STR, "reason": _STR},
     },
     {
         "name": "restore_rejection",
@@ -268,7 +270,7 @@ _TOOLS = [
         "path_args": ["identity_id"],
         "body_args": ["description", "deal_threshold"],
         "required": [],
-        "props": {"description": _STR, "deal_threshold": _NUM},
+        "props": {"identity_id": _INT, "description": _STR, "deal_threshold": _NUM},
     },
     {
         "name": "merge_identities",
@@ -284,7 +286,7 @@ _TOOLS = [
         "path_args": ["identity_id"],
         "body_args": ["into"],
         "required": ["into"],
-        "props": {"into": _INT},
+        "props": {"identity_id": _INT, "into": _INT},
     },
     {
         "name": "retune_identity",
@@ -380,6 +382,7 @@ _TOOLS = [
         "body_args": ["product_identity", "condition", "bundle"],
         "required": [],
         "props": {
+            "listing_id": _STR,
             "product_identity": _STR,
             "condition": _STR,
             "bundle": {"type": "array", "items": {"type": "object"}},
@@ -389,19 +392,28 @@ _TOOLS = [
 
 
 def tool_definitions() -> list:
-    """The MCP tools/list payload: schemas are derived from the endpoint table."""
-    return [
-        {
-            "name": t["name"],
-            "description": t["description"],
-            "inputSchema": {
-                "type": "object",
-                "properties": t["props"],
-                **({"required": t["required"]} if t.get("required") else {}),
-            },
-        }
-        for t in _TOOLS
-    ]
+    """The MCP tools/list payload: schemas are derived from the endpoint table.
+
+    Path arguments are always required — they live in the URL — so they are
+    merged into `required` here even when the table entry omits them."""
+    out = []
+    for t in _TOOLS:
+        required = list(t.get("required") or [])
+        for arg in t["path_args"]:
+            if arg not in required:
+                required.append(arg)
+        out.append(
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "inputSchema": {
+                    "type": "object",
+                    "properties": t["props"],
+                    "required": required,
+                },
+            }
+        )
+    return out
 
 
 def _url(base: str, tool: dict, arguments: dict) -> str:
@@ -447,6 +459,13 @@ def call_tool(name: str, arguments: dict, base: str) -> dict:
     tool = next((t for t in _TOOLS if t["name"] == name), None)
     if tool is None:
         return _tool_result(f"unknown tool: {name}", error=True)
+    missing = [k for k in tool["path_args"] if k not in arguments]
+    if missing:
+        return _tool_result(
+            f"missing required argument(s): {', '.join(missing)} "
+            f"for tool {name} (path {tool['path']})",
+            error=True,
+        )
     body = {k: arguments[k] for k in tool["body_args"] if k in arguments}
     try:
         resp = requests.request(

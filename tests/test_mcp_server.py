@@ -313,7 +313,7 @@ def test_empty_response_body_shapes_ok(stub):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
     try:
-        result = call("delete_search", {"id": 2}, base)
+        result = call("delete_search", {"search_id": 2}, base)
         assert result["isError"] is False
         assert result["content"][0]["text"] == "deleted"
     finally:
@@ -358,3 +358,14 @@ def test_main_serves_handshake_against_live_api(stub, monkeypatch):
     out.seek(0)
     reply = json.loads(out.read())
     assert reply["result"]["serverInfo"]["name"] == "boldtrader"
+
+
+def test_missing_path_arg_is_error_not_crash(stub):
+    # An agent passing the wrong argument name must not take down the
+    # stdio server; it gets an isError result instead.
+    result = call("get_search", {"bogus": 999999}, stub)
+    assert result["isError"] is True
+    assert "search_id" in result["content"][0]["text"]
+    # the process survived: a valid call right after still works
+    result2 = call("get_search", {"search_id": 1}, stub)
+    assert result2["isError"] is False

@@ -62,7 +62,7 @@ non-strings, or a `target_price` that is not a positive number.
 1. `create_search` with the draft above. Response is the search resource with
    its `id`. Fan-out runs in the background — the call returns before any
    listing arrives.
-2. `get_search(id=3)` until `status` is `complete`. The flow is
+2. `get_search(search_id=3)` until `status` is `complete`. The flow is
    `active` → `running` (fan-out in progress) → `enriching` (fan-out done,
    Enrichment pending) → `complete` (queue drained). A few seconds between
    polls is plenty; a large fan-out takes minutes.
