@@ -71,6 +71,8 @@ Fixed enough that backend JSON-endpoint work proceeds regardless of framework ch
 
 Validation failures → `422` / `invalid_draft`, with the failing detail in `message`. A draft is chat output, not a server-held resource: discarding a draft is a client-side no-op (replaces today's `/reject` on drafts — note that today's `/confirm` maps to `POST /api/v1/searches`).
 
+Identity mapping (ticket #60): the draft's `product_identity` phrase resolves the search's Product Identity at creation. An identity whose `description` equals the phrase exactly is reused; otherwise a new identity row is seeded from the phrase with `synthesized_at` null. A phrase already in use never mints a second identity. The identity's living description is written from evidence at `search_complete`, not by the phrase.
+
 ### Search results (enhanced view)
 
 `GET /api/v1/searches/{id}/results`

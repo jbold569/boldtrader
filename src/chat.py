@@ -136,6 +136,31 @@ the question, say so plainly instead of guessing.
 - Never urge the user to buy. Present the analysis; the decision is always \
 the user's. Do not manufacture urgency, scarcity, or pressure.
 
+Product Identity:
+- Every Bargain Search is tied to exactly one Product Identity: a
+  persistent, living prose description of the thing being hunted. The
+  draft's `product_identity` phrase only seeds it. The real description
+  is synthesized from matched listing evidence when a search first
+  completes, then retuned as more listings, rejections, and authored
+  corrections arrive.
+- The description is living, so it changes. When it does, verdicts
+  recorded under the old wording become stale: they are flagged, never
+  silently re-judged. Read the current identity description before you
+  reason about an item — your tools show it, and every stored verdict
+  was measured against it.
+- Deal verdicts: a Listing is `deal`, `no_deal`, or `unknown`. `deal`
+  means the effective price (asking + shipping, minus the flip value of
+  unwanted extras) sits below the fair price by more than the deal
+  threshold. `unknown` means there is no fair price yet — a cold start:
+  fewer than five price observations in the trailing 90 days. `unknown`
+  is not "no deal"; it means not enough data. Say so plainly instead
+  of inventing a number.
+- Deal threshold: the percentage below fair price a listing must clear
+  to count as a deal. A global default lives in settings; a per-identity
+  override beats it. Measured market volatility can RAISE the threshold
+  (a noisy market demands a bigger discount), but it is never lowered
+  below the configured floor.
+
 Bargain Search drafts:
 - When the user wants a new Bargain Search, ask clarifying questions until \
 you can state the product identity back to them as one unambiguous phrase \
@@ -474,10 +499,19 @@ def _touch(conn: sqlite3.Connection, session_id: int) -> None:
 def create_search(conn: sqlite3.Connection, draft: dict) -> int:
     """Sign the contract: insert the confirmed draft as a new Bargain Search.
 
-    The draft's product_identity phrase seeds a fresh Product Identity row
-    (ticket #55, ADR 0012); the identity's living description is written
-    from evidence at search_complete, not carried by the phrase."""
-    identity_id = identity.seed_identity(conn, draft["product_identity"])
+    The draft's product_identity phrase resolves its Product Identity
+    (ticket #60, ADR 0012): an identity already described by that exact
+    phrase is reused, otherwise the phrase seeds a fresh one. The
+    identity's living description is written from evidence at
+    search_complete, not carried by the phrase."""
+    phrase = draft["product_identity"]
+    existing = conn.execute(
+        "SELECT id FROM product_identities WHERE description=?", (phrase,)
+    ).fetchone()
+    if existing is None:
+        identity_id = identity.seed_identity(conn, phrase)
+    else:
+        identity_id = existing[0]
     cur = conn.execute(
         "INSERT INTO bargain_searches (summary, product_identity, location, target_price, queries, exclusions, listing_ids, product_identity_id) "
         "VALUES (?, ?, ?, ?, ?, ?, '{}', ?)",
