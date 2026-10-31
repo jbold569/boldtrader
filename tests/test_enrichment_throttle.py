@@ -166,3 +166,97 @@ def test_single_failure_does_not_cool_down(db, monkeypatch):
         fanout.enrichment_worker({"test": MostlyGood()}, poll_seconds=2.0)
 
     assert fanout.ENRICH_COOLDOWN_SECONDS not in clock.sleeps
+
+
+class Blocked(Exception):
+    """Stand-in for requests.exceptions.HTTPError with a 403 response."""
+
+    def __init__(self):
+        self.response = type("R", (), {"status_code": 403})()
+
+
+def test_blocked_rows_stay_pending(db, monkeypatch):
+    """A 403 is the marketplace blocking us, not a bad listing: don't burn the rows."""
+    n = fanout.ENRICH_CONSECUTIVE_FAILURE_LIMIT
+    for i in range(n):
+        seed_pending(db, f"test:{i}")
+    clock = FakeClock()
+    monkeypatch.setattr(fanout.time, "monotonic", clock.monotonic)
+
+    class BlockedMP:
+        def fetch_detail(self, listing):
+            raise Blocked()
+
+    def fake_sleep(s):
+        clock.sleep(s)
+        if s >= fanout.ENRICH_COOLDOWN_SECONDS:
+            raise StopIteration
+
+    monkeypatch.setattr(fanout.time, "sleep", fake_sleep)
+
+    with pytest.raises(StopIteration):
+        fanout.enrichment_worker({"test": BlockedMP()}, poll_seconds=2.0)
+
+    row = db.execute(
+        "SELECT status FROM enrichments WHERE listing_id='test:0'"
+    ).fetchone()
+    assert row[0] == "pending"
+
+
+def test_cooldown_escalates_and_caps(db, monkeypatch):
+    """Two consecutive outage bursts: second pause doubles, capped at max."""
+    n = fanout.ENRICH_CONSECUTIVE_FAILURE_LIMIT
+    for burst in range(2):
+        for i in range(n):
+            seed_pending(db, f"test:{burst}-{i}")
+    clock = FakeClock()
+    monkeypatch.setattr(fanout.time, "monotonic", clock.monotonic)
+
+    cooldowns = []
+
+    def fake_sleep(s):
+        clock.sleep(s)
+        if s >= fanout.ENRICH_COOLDOWN_SECONDS:
+            cooldowns.append(s)
+            if len(cooldowns) == 2:
+                raise StopIteration
+
+    monkeypatch.setattr(fanout.time, "sleep", fake_sleep)
+
+    with pytest.raises(StopIteration):
+        fanout.enrichment_worker({"test": DeadMP()}, poll_seconds=2.0)
+
+    assert cooldowns == [
+        fanout.ENRICH_COOLDOWN_SECONDS,
+        min(fanout.ENRICH_COOLDOWN_SECONDS * 2, fanout.ENRICH_MAX_COOLDOWN_SECONDS),
+    ]
+
+
+def test_progress_refresh_crash_does_not_kill_worker(db, monkeypatch):
+    """A crash in progress bookkeeping must not strand the queue (2026-10-31)."""
+    for i in range(2):
+        seed_pending(db, f"test:{i}")
+    db.execute(
+        "INSERT INTO bargain_searches (summary, product_identity, status) "
+        "VALUES ('s', 'p', 'enriching')"
+    )
+    db.commit()
+    clock = FakeClock()
+    monkeypatch.setattr(fanout.time, "monotonic", clock.monotonic)
+
+    def boom_refresh(conn, sid):
+        raise Boom("progress exploded")
+
+    def fake_sleep(s):
+        if s == 2.0:  # idle poll: everything processed
+            raise StopIteration
+        clock.sleep(s)
+
+    monkeypatch.setattr(fanout, "_refresh_progress", boom_refresh)
+    monkeypatch.setattr(fanout.time, "sleep", fake_sleep)
+
+    with pytest.raises(StopIteration):
+        fanout.enrichment_worker({"test": GoodMP()}, poll_seconds=2.0)
+
+    n = db.execute("SELECT COUNT(*) FROM enrichments WHERE status='enriched'").fetchone()[0]
+    assert n == 2

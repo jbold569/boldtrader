@@ -3,7 +3,8 @@
 On confirmation, fan every curated query across all marketplaces (paginated,
 tolerant of single-marketplace failure), persist each new listing, and sift it.
 Listings judged match/unsure enter the enrichment queue. A single background
-worker drains the queue: fetch_detail + enrich, retry once, then mark failed.
+worker drains the queue: fetch_detail + enrich, with a retry budget and a
+marketplace-level block detector (see _is_blocked).
 The queue is the database: status columns make it restart-resumable.
 
 Search status flow: 'running' (fan-out in progress) -> 'enriching' (fan-out
@@ -31,10 +32,16 @@ log = logging.getLogger("boldtrader.fanout")
 # blocked by the marketplaces. Pace every outbound request and cool down hard
 # on a burst of consecutive failures (the signature of an outage, not of a
 # single bad listing).
+#
+# The cooldown escalates (300s, 600s, 1200s, capped) instead of restarting
+# the same 300s pause every five rows: the eBay 403 block of 2026-10-31
+# outlasted fixed-length cooldowns, and each expired cooldown resumed the
+# firehose that deepened the block. The level resets on the next success.
 ENRICH_MIN_INTERVAL_SECONDS = 5.0
 ENRICH_RETRY_BACKOFF_SECONDS = 1.0
 ENRICH_CONSECUTIVE_FAILURE_LIMIT = 5
 ENRICH_COOLDOWN_SECONDS = 300.0
+ENRICH_MAX_COOLDOWN_SECONDS = 3600.0
 
 def fan_out(
     marketplaces: dict[str, Marketplace],
@@ -289,6 +296,16 @@ def reenrich_search(conn: sqlite3.Connection, search_id: int) -> int:
     return total
 
 
+def _is_blocked(exc: Exception) -> bool:
+    """True if the marketplace rejected the whole host (anti-bot block), not this listing.
+
+    403/429/503 is the signature of an IP-level block: the rejection has
+    nothing to do with the listing, so hammering the next row right back
+    only deepens it (eBay, 2026-10-31: hundreds of rows failed this way).
+    """
+    return getattr(getattr(exc, "response", None), "status_code", None) in (403, 429, 503)
+
+
 def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], lid: str) -> bool:
     """Enrich one listing: fetch detail, resolve its identity, write the record.
 
@@ -298,7 +315,10 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
     Unidentified bucket rather than polluting identity space.
 
     Retries once (after a short backoff) on failure; a second failure marks
-    the row 'failed'. Returns True on success, False on permanent failure.
+    the row 'failed'. A blocked response (403/429/503) is different: the
+    marketplace is rejecting us, not this listing, so the row stays
+    'pending' — the worker's escalating cooldown is the right lever, and
+    the queue auto-heals when the block lifts, no manual re-enrich needed.
     """
     row = conn.execute("SELECT raw, authored_description FROM listings WHERE id=?", (lid,)).fetchone()
     # A Correction is the user's word over the model's: never re-modeled,
@@ -389,6 +409,8 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
         except Exception as exc:
             conn.rollback()
             log.warning("enrich attempt %d failed for %s: %s", attempt + 1, lid, exc)
+            if _is_blocked(exc):
+                return False
             if attempt == 0:
                 time.sleep(ENRICH_RETRY_BACKOFF_SECONDS)
     conn.execute(
@@ -435,14 +457,17 @@ def enrichment_worker(
     the work already took longer, no extra wait). A run of
     ENRICH_CONSECUTIVE_FAILURE_LIMIT consecutive failures is treated as an
     outage (dead DNS/network, blocked IP) rather than bad listings, so the
-    worker backs off ENRICH_COOLDOWN_SECONDS instead of firehosing the
-    upstream and getting the host shut down.
+    worker sleeps ENRICH_COOLDOWN_SECONDS before the next attempt, doubling
+    each burst up to ENRICH_MAX_COOLDOWN_SECONDS. A block that outlasts one
+    fixed pause (eBay, 2026-10-31) must not be met with the same firehose
+    every time. The level resets on the first success.
     """
     conn = get_connection()
     log.info("enrichment worker started")
     try:
         next_allowed = 0.0
         consecutive_failures = 0
+        cooldown = ENRICH_COOLDOWN_SECONDS
         while True:
             row = conn.execute(
                 "SELECT listing_id FROM enrichments WHERE status='pending' LIMIT 1"
@@ -457,20 +482,27 @@ def enrichment_worker(
             next_allowed = time.monotonic() + ENRICH_MIN_INTERVAL_SECONDS
             if ok:
                 consecutive_failures = 0
+                cooldown = ENRICH_COOLDOWN_SECONDS
             else:
                 consecutive_failures += 1
                 if consecutive_failures >= ENRICH_CONSECUTIVE_FAILURE_LIMIT:
                     log.warning(
                         "%d consecutive enrichment failures; cooling down %.0fs "
                         "(upstream outage?)",
-                        consecutive_failures, ENRICH_COOLDOWN_SECONDS,
+                        consecutive_failures, cooldown,
                     )
-                    time.sleep(ENRICH_COOLDOWN_SECONDS)
+                    time.sleep(cooldown)
                     consecutive_failures = 0
+                    cooldown = min(cooldown * 2, ENRICH_MAX_COOLDOWN_SECONDS)
             for srow in conn.execute(
                 "SELECT id FROM bargain_searches WHERE status='enriching'"
             ).fetchall():
-                _refresh_progress(conn, srow[0])
+                try:
+                    _refresh_progress(conn, srow[0])
+                except Exception:
+                    # Progress bookkeeping must never kill the drain; the
+                    # search gets another chance on the next row.
+                    log.exception("progress refresh failed for #%s", srow[0])
     except Exception:
         log.exception("enrichment worker crashed; queue left for the next start")
         raise
