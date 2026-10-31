@@ -241,3 +241,40 @@ def test_get_listing_unknown_id_says_not_seen(db):
 
 def test_get_listing_blank_id(db):
     assert get_listing("  ") == "Listing id required."
+
+
+# --- legacy (pre-#53) stored shapes -----------------------------------------
+
+
+def test_search_listings_survives_legacy_product_shape(db):
+    # Old corpora stored product as {manufacturer, model, config} with no
+    # 'description' key; the renderer must not KeyError.
+    seed_listing(db, "legacy1", "Some workstation")
+    seed_enrichment(
+        db,
+        "legacy1",
+        {"manufacturer": "HP", "model": "Z440", "config": "64GB RAM"},
+        "good",
+    )
+    db.commit()
+    out = search_listings("workstation")
+    assert "HP" in out and "Z440" in out
+
+
+def test_get_listing_survives_legacy_bundle_and_product(db):
+    seed_listing(db, "legacy2", "Old listing")
+    conn = db
+    conn.execute(
+        "INSERT INTO enrichments (listing_id, product, condition, bundle, confidence, status) "
+        "VALUES (?, ?, ?, ?, ?, 'enriched')",
+        (
+            "legacy2",
+            json.dumps({"manufacturer": "Dell", "model": "OptiPlex 3060", "config": "8GB"}),
+            "good",
+            json.dumps(["power cord", "monitor stand"]),
+            json.dumps("high"),
+        ),
+    )
+    conn.commit()
+    out = get_listing("legacy2")
+    assert "Dell" in out and "power cord" in out

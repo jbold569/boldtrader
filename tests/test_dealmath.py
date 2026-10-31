@@ -177,6 +177,18 @@ def test_flip_value_empty_bundle_is_zero(db):
     assert dealmath.flip_value(db, [], "Dell OptiPlex 3060", as_of=TODAY) == 0.0
 
 
+def test_flip_value_accepts_legacy_bare_string_bundles(db):
+    # Pre-#53 corpora stored bundles as bare strings. The reader must treat
+    # each string as the component description, not crash.
+    kb = seed_identity(db, "Logitech K270 keyboard")
+    seed_listing(db)
+    for price in (30.0,) * 5:
+        add_obs(db, kb, "complete", price, day(3))
+    bundle = ["Logitech K270 keyboard", "power cable"]
+    flip = dealmath.flip_value(db, bundle, "Dell OptiPlex 3060 i5-8500", as_of=TODAY)
+    assert flip == 30.0
+
+
 # --- threshold ---------------------------------------------------------------
 
 

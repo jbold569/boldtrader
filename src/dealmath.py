@@ -115,7 +115,12 @@ def flip_value(
     """
     total = 0.0
     for item in bundle:
-        description = (item.get("description") or "").strip()
+        # Pre-#53 corpora stored bundles as bare strings; a string is the
+        # component description itself.
+        if isinstance(item, str):
+            description = item.strip()
+        else:
+            description = (item.get("description") or "").strip()
         if not description:
             continue
         if component_is_inside(description, identity_description):

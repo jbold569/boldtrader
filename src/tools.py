@@ -30,6 +30,19 @@ _SQL = """
 """
 
 
+def _desc(product: dict) -> str:
+    """Description from a stored product record, legacy shapes included.
+
+    Pre-#53 corpora stored {manufacturer, model, config} with no
+    'description'; compose one instead of crashing.
+    """
+    d = (product.get("description") or "").strip()
+    if d:
+        return d
+    parts = [product.get("manufacturer"), product.get("model")]
+    return " ".join(p for p in parts if p and p.lower() != "unknown") or "unknown product"
+
+
 def search_listings(keyword: str) -> str:
     """Top-5 case-insensitive substring search over listing title and raw text."""
     if not keyword or not keyword.strip():
@@ -55,7 +68,7 @@ def search_listings(keyword: str) -> str:
         if r["e_status"] == "enriched" and r["product"]:
             product = json.loads(r["product"])
             e_cond = r["e_condition"] or "?"
-            status = f"Enriched: {product['description']}, condition: {e_cond}"
+            status = f"Enriched: {_desc(product)}, condition: {e_cond}"
         else:
             status = "not enriched"
         blocks.append(f"Title: {r['title']}\nPrice: {price}\nCondition: {condition}\nEnrichment: {status}")
@@ -93,14 +106,17 @@ def get_listing(id: str) -> str:
     lines.append(f"Availability: {row['availability'] or 'live'}")
     if row["status"] == "enriched" and row["product"]:
         product = json.loads(row["product"])
+        bundle_items = json.loads(row["bundle"]) if row["bundle"] else []
         bundle = (
-            ", ".join(b["description"] for b in json.loads(row["bundle"]))
-            if row["bundle"]
-            else "none"
+            ", ".join(
+                b if isinstance(b, str) else b.get("description", "")
+                for b in bundle_items
+            )
+            or "none"
         )
         lines.append(
-            f"Enrichment: {product['description']}, condition: {row['condition']}, "
-            f"bundle: {bundle}, confidence: {product['confidence']}"
+            f"Enrichment: {_desc(product)}, condition: {row['condition']}, "
+            f"bundle: {bundle}, confidence: {product.get('confidence', '?')}"
         )
     else:
         lines.append("Enrichment: none")
