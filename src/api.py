@@ -1061,6 +1061,11 @@ def merge_identities(handler, loser_id: str) -> None:
                     (winner_arg, loser["id"]),
                 )
             conn.execute("DELETE FROM product_identities WHERE id=?", (loser["id"],))
+            # The winner's evidence pool just grew; leave a freshness mark.
+            conn.execute(
+                "UPDATE product_identities SET updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (winner_arg,),
+            )
             winner = _load_identity(conn, winner_arg)
             conn.commit()
         except Exception as exc:

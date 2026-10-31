@@ -332,6 +332,12 @@ def seed_merge_world(db):
 
 def test_merge_repoints_everything(site, db):
     loser, winner, sid = seed_merge_world(db)
+    # sentinel far in the past so a real bump is unmistakable
+    db.execute(
+        "UPDATE product_identities SET updated_at='2000-01-01 00:00:00' WHERE id=?",
+        (winner,),
+    )
+    db.commit()
     status, body, _ = call("POST", f"{site}/api/v1/product-identities/{loser}/merge",
                           {"into": winner})
     assert status == 200
@@ -350,6 +356,10 @@ def test_merge_repoints_everything(site, db):
     assert db.execute(
         "SELECT COUNT(*) FROM product_identities WHERE id=?", (loser,)
     ).fetchone() == (0,)
+    bumped = db.execute(
+        "SELECT updated_at FROM product_identities WHERE id=?", (winner,)
+    ).fetchone()[0]
+    assert bumped != "2000-01-01 00:00:00"
 
 
 def test_merge_missing_into(site, db):
