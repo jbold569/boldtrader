@@ -936,8 +936,8 @@ def _identity_resource(row) -> dict:
         "description": description,
         "deal_threshold": deal_threshold,
         "synthesized_at": _ts_or_none(synthesized_at),
-        "created_at": _iso(created_at),
-        "updated_at": _iso(updated_at),
+        "created_at": _ts_or_none(created_at),
+        "updated_at": _ts_or_none(updated_at),
     }
 
 
