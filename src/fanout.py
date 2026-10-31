@@ -234,6 +234,13 @@ def _refresh_progress(conn: sqlite3.Connection, search_id: int) -> None:
         )
         conn.commit()
         log.info("search #%s complete", search_id)
+        # The identity update rides the transition into 'complete'. The
+        # zero-match path in fan_out calls it too; this is the path a search
+        # with queued enrichment actually takes (ticket #55).
+        try:
+            identity.update_identity_from_search(conn, search_id)
+        except Exception:
+            log.exception("identity update failed for #%s", search_id)
         events.publish(
             "search_complete",
             {

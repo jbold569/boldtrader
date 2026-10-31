@@ -169,6 +169,33 @@ def test_first_completion_synthesizes(db, monkeypatch):
     ]
 
 
+
+def test_drain_completion_synthesizes_identity(db, monkeypatch):
+    # Regression: the worker's queue-drain path (_refresh_progress) is the
+    # completion path a search with queued enrichment actually takes. It
+    # must carry the same identity update as the zero-match path in fan_out;
+    # shipping left it out and real searches finished unsynthesized.
+    from src import fanout
+
+    iid = seed_identity(db, description="a workstation")
+    seed_listing(db, "a", title="Dell Optiplex 7080")
+    seed_enrichment(db, "a", product_desc="Dell Optiplex 7080")
+    rec = Recorder(reply="Dell Optiplex 7080, i5-10500/16GB/512GB SSD")
+    monkeypatch.setattr(ident.router, "synthesize_description", rec)
+    sid = seed_search(db, iid, status="enriching", listing_ids={"a": "match"})
+
+    fanout._refresh_progress(db, sid)
+
+    row = db.execute(
+        "SELECT description, synthesized_at FROM product_identities WHERE id=?", (iid,)
+    ).fetchone()
+    assert row[0] == "Dell Optiplex 7080, i5-10500/16GB/512GB SSD"
+    assert row[1] is not None
+    status = db.execute(
+        "SELECT status FROM bargain_searches WHERE id=?", (sid,)
+    ).fetchone()[0]
+    assert status == "complete"
+
 def test_description_change_flags_verdicts_stale(db, monkeypatch):
     iid = seed_identity(db, description="a workstation")
     seed_listing(db, "a")
