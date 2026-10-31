@@ -237,9 +237,10 @@ _TOOLS = [
     {
         "name": "list_identities",
         "description": (
-            "List Product Identities (id, description, deal_threshold, "
-            "synthesized_at). A null deal_threshold means the identity falls "
-            "back to the global threshold from get_settings."
+            "List Product Identities (id, description, synthesized_at, "
+            "listing_count, observation_count, fair_prices, search_ids). "
+            "There is no stored deal threshold (ticket #61): deal "
+            "judgment is the human's at view time."
         ),
         "method": "GET",
         "path": "/product-identities",
@@ -259,18 +260,17 @@ _TOOLS = [
     {
         "name": "patch_identity",
         "description": (
-            "Hand-edit a Product Identity: `description` (non-empty prose) "
-            "and/or `deal_threshold` (positive percentage, or null to clear "
-            "the override). A hand-edit is not a synthesis, so "
-            "synthesized_at is untouched. Editing the description makes "
-            "existing verdicts over it stale (verdict_stale=true)."
+            "Hand-edit a Product Identity: `description` (non-empty "
+            "prose). A hand-edit is not a synthesis, so synthesized_at "
+            "is untouched. Editing the description makes existing "
+            "verdicts over it stale (verdict_stale=true)."
         ),
         "method": "PATCH",
         "path": "/product-identities/{identity_id}",
         "path_args": ["identity_id"],
-        "body_args": ["description", "deal_threshold"],
+        "body_args": ["description"],
         "required": [],
-        "props": {"identity_id": _INT, "description": _STR, "deal_threshold": _NUM},
+        "props": {"identity_id": _INT, "description": _STR},
     },
     {
         "name": "merge_identities",
@@ -306,12 +306,14 @@ _TOOLS = [
     {
         "name": "list_deals",
         "description": (
-            "The flat deal feed: every identified listing whose effective "
-            "price clears its identity's deal threshold, sorted by margin. "
-            "Filters: sort margin_desc|margin_asc, max_price (effective "
-            "price), availability live|dead, product_identity_id, "
-            "marketplace (exact). Listings with no fair price yet (cold "
-            "start) never appear."
+            "The flat deal feed: every identified listing with a "
+            "computable fair price, sorted by margin (margin_pct = "
+            "(fair - effective) / fair * 100). There is no stored deal "
+            "threshold: the feed shows raw margin and the human decides "
+            "what clears. Filters: sort margin_desc|margin_asc, max_price "
+            "(effective price), availability live|dead, "
+            "product_identity_id, marketplace (exact). Listings with no "
+            "fair price yet (cold start) never appear."
         ),
         "method": "GET",
         "path": "/deals",
@@ -328,30 +330,24 @@ _TOOLS = [
         },
     },
     {
-        "name": "get_settings",
+        "name": "reresolve",
         "description": (
-            "Read the app settings; currently {deal_threshold}, the global "
-            "deal margin percentage used when a Product Identity sets no "
-            "override."
+            "Re-run identity resolution over stored listing text (no "
+            "marketplace refetch) with the full identity list as "
+            "candidates. Body: {\"scope\":\"all\"} for every enriched "
+            "listing, or {\"listing_ids\":[...]} for a specific set. "
+            "Listings whose enrichment was hand-corrected are skipped. A "
+            "listing whose resolution changed is re-pointed, together "
+            "with its price history, to the new identity. Returns a "
+            "report: moves (old -> new per listing) plus total/moved/"
+            "unchanged/skipped_corrected counts."
         ),
-        "method": "GET",
-        "path": "/settings",
+        "method": "POST",
+        "path": "/identities/reresolve",
         "path_args": [],
-        "body_args": [],
-        "props": {},
-    },
-    {
-        "name": "update_settings",
-        "description": (
-            "Change the global deal_threshold percentage (positive number). "
-            "Returns the full settings object."
-        ),
-        "method": "PATCH",
-        "path": "/settings",
-        "path_args": [],
-        "body_args": ["deal_threshold"],
+        "body_args": ["scope", "listing_ids"],
         "required": [],
-        "props": {"deal_threshold": _NUM},
+        "props": {"scope": _STR, "listing_ids": _STRS},
     },
     {
         "name": "reenrich_search",
@@ -443,7 +439,7 @@ def _request_json(resp) -> dict:
 def probe(base: str) -> None:
     """Fail loudly at startup if the API is not there, with the fix."""
     try:
-        requests.get(f"{base.rstrip('/')}{API_PREFIX}/settings", timeout=10)
+        requests.get(f"{base.rstrip('/')}{API_PREFIX}/searches?page=1", timeout=10)
     except requests.RequestException as exc:
         raise SystemExit(
             f"BoldTrader API unreachable at {base} ({exc}).\n"

@@ -33,7 +33,6 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
 CREATE TABLE IF NOT EXISTS product_identities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     description TEXT NOT NULL,
-    deal_threshold REAL,
     synthesized_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -93,11 +92,6 @@ CREATE TABLE IF NOT EXISTS session_messages (
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
 );
 """
 
@@ -176,12 +170,47 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
             "ALTER TABLE enrichments ADD COLUMN corrected INTEGER NOT NULL DEFAULT 0"
         )
         conn.commit()
+    # Migrate DBs created before the deal_threshold deletion (ticket #61):
+    # the stored threshold is gone; deal judgment is a view-time human call.
+    if "deal_threshold" in picols:
+        conn.execute("ALTER TABLE product_identities DROP COLUMN deal_threshold")
+        conn.commit()
     # Drop the dead per-search transcript table (superseded by chat sessions).
     conn.execute("DROP TABLE IF EXISTS conversations")
     conn.commit()
-    # Seed defaults without clobbering user-set values.
-    conn.execute(
-        "INSERT OR IGNORE INTO settings (key, value) VALUES ('deal_threshold', '25')"
-    )
+    # Drop the dead settings table: with no stored threshold there is
+    # nothing left for it to hold (ticket #61).
+    conn.execute("DROP TABLE IF EXISTS settings")
     conn.commit()
+    # Backfill: every Bargain Search maps to exactly one Product Identity
+    # (ticket #61). New searches seed it at creation; this catches rows
+    # written before the invariant existed.
+    backfill_search_identities(conn)
     return conn
+
+
+def backfill_search_identities(conn: sqlite3.Connection) -> None:
+    """Give every unmapped Bargain Search an identity seeded from its
+    stored product_identity phrase. Reuses an existing identity whose
+    description matches the phrase; idempotent."""
+    rows = conn.execute(
+        "SELECT id, product_identity FROM bargain_searches "
+        "WHERE product_identity_id IS NULL"
+    ).fetchall()
+    for search_id, phrase in rows:
+        existing = conn.execute(
+            "SELECT id FROM product_identities WHERE description=?", (phrase,)
+        ).fetchone()
+        if existing is None:
+            cur = conn.execute(
+                "INSERT INTO product_identities (description) VALUES (?)", (phrase,)
+            )
+            identity_id = cur.lastrowid
+        else:
+            identity_id = existing[0]
+        conn.execute(
+            "UPDATE bargain_searches SET product_identity_id=? WHERE id=?",
+            (identity_id, search_id),
+        )
+    if rows:
+        conn.commit()

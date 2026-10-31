@@ -338,7 +338,7 @@ def _enrich_one(conn: sqlite3.Connection, marketplaces: dict[str, Marketplace], 
     candidates = [
         {"id": r[0], "description": r[1]}
         for r in conn.execute(
-            "SELECT id, description FROM product_identities ORDER BY id ASC LIMIT 20"
+            "SELECT id, description FROM product_identities ORDER BY id ASC"
         )
     ]
     for attempt in range(2):

@@ -60,9 +60,9 @@ first, and remember a big bundle can make a bad-looking ask a good deal via
 
 **A price surge.** If everything for a product is priced *at* the level you
 used to call a deal, that is a **price surge**, not a drought: the market
-moved. Do not "fix" the threshold to make old deals reappear. Fair price
-tracks the trailing 90 days, so it catches up on its own as the observations
-roll forward.
+moved. There is no stored threshold to fiddle with to make old deals
+reappear. Fair price tracks the trailing 90 days, so it catches up on its
+own as the observations roll forward.
 
 ## Failure modes
 

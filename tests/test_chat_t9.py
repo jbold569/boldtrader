@@ -53,17 +53,6 @@ def test_prompt_explains_verdicts_including_unknown():
     assert "cold start" in lower
 
 
-def test_prompt_explains_threshold_semantics():
-    from src import chat as chat_mod
-
-    lower = chat_mod.SYSTEM_PROMPT.lower()
-    assert "threshold" in lower
-    # below the fair price, override beats default, raise-only
-    assert "fair price" in lower
-    assert "override" in lower
-    assert "never lowered" in lower
-
-
 def test_prompt_keeps_old_guarantees():
     from src import chat as chat_mod
 

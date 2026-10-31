@@ -1,4 +1,4 @@
-"""Deal math per ADR 0011: fair price, effective price, threshold, verdict.
+"""Deal math per ADR 0011: fair price and effective price.
 
 Why this is a separate module: every consumer of deal quality (cards, the
 deals endpoint, MCP tools) must agree on one arithmetic, and the numbers
@@ -19,12 +19,8 @@ import sqlite3
 from datetime import date, timedelta
 from statistics import median
 
-MIN_OBSERVATIONS = 5          # below this, no fair price exists yet (ADR 0011)
+MIN_OBSERVATIONS = 5  # below this, no fair price exists yet (ADR 0011)
 FAIR_WINDOW_DAYS = 90
-REFINE_MIN_OBSERVATIONS = 30  # volatility refinement waits for a real pool
-SURGE_TRIGGER_PCT = 15.0      # ADR 0001: surge starts above +15% ...
-SURGE_CLEAR_PCT = 5.0         # ... and clears only below +5%
-DEFAULT_THRESHOLD_PCT = 25.0
 
 
 def _today(as_of: date | None) -> date:
@@ -138,117 +134,3 @@ def flip_value(
     return total
 
 
-def _iqr_fence(sorted_prices: list[float]) -> list[float]:
-    """Drop values beyond Q1 - 1.5*IQR / Q3 + 1.5*IQR (ADR 0001)."""
-    q1 = median(sorted_prices[: len(sorted_prices) // 2])
-    q3 = median(sorted_prices[(len(sorted_prices) + 1) // 2 :])
-    iqr = q3 - q1
-    lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-    return [p for p in sorted_prices if lo <= p <= hi]
-
-
-def refined_threshold(floor_pct: float, pooled_prices: list[float]) -> float:
-    """Raise the threshold to the measured noise floor when noise is worse.
-
-    Per ADR 0001: an IQR fence drops extreme listings first, then
-    noise = MAD/median as a percentage. The refinement may only RAISE
-    the threshold (a noisy market demands a bigger discount to be a
-    real deal); it NEVER lowers the configured floor. Below 30
-    observations the pool is too thin to measure — cold start, the
-    floor stands alone.
-    """
-    if len(pooled_prices) < REFINE_MIN_OBSERVATIONS:
-        return floor_pct
-    kept = _iqr_fence(sorted(pooled_prices))
-    med = median(kept)
-    if med <= 0:
-        return floor_pct
-    noise_pct = 100.0 * median(abs(p - med) for p in kept) / med
-    return max(floor_pct, noise_pct)
-
-
-def global_threshold(conn: sqlite3.Connection) -> float:
-    row = conn.execute(
-        "SELECT value FROM settings WHERE key='deal_threshold'"
-    ).fetchone()
-    return float(row[0]) if row else DEFAULT_THRESHOLD_PCT
-
-
-def threshold_for(
-    conn: sqlite3.Connection,
-    product_identity_id: int,
-    as_of: date | None = None,
-) -> float:
-    """The deal threshold for one identity: its override beats the global,
-    then volatility refinement raises it if measured noise demands."""
-    row = conn.execute(
-        "SELECT deal_threshold FROM product_identities WHERE id=?",
-        (product_identity_id,),
-    ).fetchone()
-    floor_pct = row[0] if row and row[0] is not None else global_threshold(conn)
-    pooled = [
-        r[0]
-        for r in conn.execute(
-            "SELECT effective_price FROM price_observations "
-            "WHERE product_identity_id=? AND observed_at >= ?",
-            (product_identity_id, _window_start(as_of, FAIR_WINDOW_DAYS)),
-        )
-    ]
-    return refined_threshold(floor_pct, pooled)
-
-
-def deal_verdict(
-    effective: float, fair: float | None, threshold_pct: float
-) -> str:
-    """'deal' iff effective < fair * (1 - threshold/100); 'unknown' if no fair."""
-    if fair is None:
-        return "unknown"
-    line = fair * (1.0 - threshold_pct / 100.0)
-    return "deal" if effective < line else "no_deal"
-
-
-def surge_state(
-    recent_median: float | None, prior_median: float | None, previously_surging: bool
-) -> bool:
-    """Hysteresis on the price surge (ADR 0001).
-
-    Starts above +15% over the prior window, clears only below +5%. The
-    gap prevents the flag flapping while prices sit near the trigger.
-    """
-    if recent_median is None or prior_median is None or prior_median <= 0:
-        return False
-    rise_pct = 100.0 * (recent_median - prior_median) / prior_median
-    if previously_surging:
-        return rise_pct >= SURGE_CLEAR_PCT
-    return rise_pct > SURGE_TRIGGER_PCT
-
-
-def detect_surge(
-    conn: sqlite3.Connection,
-    product_identity_id: int,
-    as_of: date | None = None,
-    previously_surging: bool = False,
-) -> bool:
-    """Pooled (all conditions) 30d vs previous 30d median surge check."""
-    base = _today(as_of)
-    recent_start = (base - timedelta(days=30)).isoformat()
-    prior_start = (base - timedelta(days=60)).isoformat()
-    recent = [
-        r[0]
-        for r in conn.execute(
-            "SELECT effective_price FROM price_observations "
-            "WHERE product_identity_id=? AND observed_at >= ?",
-            (product_identity_id, recent_start),
-        )
-    ]
-    prior = [
-        r[0]
-        for r in conn.execute(
-            "SELECT effective_price FROM price_observations "
-            "WHERE product_identity_id=? AND observed_at >= ? AND observed_at < ?",
-            (product_identity_id, prior_start, recent_start),
-        )
-    ]
-    recent_median = median(recent) if recent else None
-    prior_median = median(prior) if prior else None
-    return surge_state(recent_median, prior_median, previously_surging)

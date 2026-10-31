@@ -3,7 +3,7 @@
 A Product Identity starts as the user's seed phrase and becomes a living
 prose description: the first completed search synthesizes one from the
 matched listings, every subsequent completion retunes it with the new
-evidence (rejects, corrections, the deal threshold). The description is
+evidence (rejects, corrections). The description is
 what sift judges against from then on, so a change to it makes every
 existing verdict stale — flagged, never silently re-sifted (ADR 0006:
 re-sifting happens only on an explicit re-run).
@@ -37,6 +37,73 @@ def _now() -> str:
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
     )
+
+
+EXCLUSIONS_HEADER = "Exclusions:"
+
+
+def split_exclusions(description: str) -> tuple[str, list[str]]:
+    """Split a description into (body prose, exclusion reason lines).
+
+    The Exclusions block is the literal header line `Exclusions:` followed
+    by one reason per line at the end of the description (ticket #61).
+    No block -> (description, [])."""
+    lines = description.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == EXCLUSIONS_HEADER:
+            body = "\n".join(lines[:i]).rstrip()
+            reasons = [l for l in lines[i + 1:] if l.strip()]
+            return body, reasons
+    return description, []
+
+
+def render_exclusions(body: str, lines: list[str]) -> str:
+    """Reassemble a description from its body and exclusion lines. No
+    lines means no block: just the body."""
+    if not lines:
+        return body
+    return body.rstrip() + "\n\n" + EXCLUSIONS_HEADER + "\n" + "\n".join(lines)
+
+
+def append_exclusion(description: str, reason: str) -> str:
+    """Append one reason to the Exclusions block, deduped by casefolded
+    exact match. Returns the new description."""
+    body, lines = split_exclusions(description)
+    key = reason.casefold()
+    if any(existing.casefold() == key for existing in lines):
+        return description
+    return render_exclusions(body, lines + [reason])
+
+
+def remove_exclusion(description: str, reason: str) -> str:
+    """Drop the first casefolded-exact match of reason from the
+    Exclusions block; the block header goes with it when empty."""
+    body, lines = split_exclusions(description)
+    key = reason.casefold()
+    kept: list[str] = []
+    dropped = False
+    for existing in lines:
+        if not dropped and existing.casefold() == key:
+            dropped = True
+            continue
+        kept.append(existing)
+    return render_exclusions(body, kept)
+
+
+def enforce_exclusions(new_description: str, prior_description: str) -> str:
+    """Guarantee that every exclusion line from the prior description
+    survives an automatic rewrite (ticket #61). The prompt instruction is
+    a nicety; this check is the guarantee: any prior line missing from
+    the model output (casefolded) is force re-appended."""
+    _, prior_lines = split_exclusions(prior_description)
+    if not prior_lines:
+        return new_description
+    _, new_lines = split_exclusions(new_description)
+    present = {l.casefold() for l in new_lines}
+    missing = [l for l in prior_lines if l.casefold() not in present]
+    if not missing:
+        return new_description
+    return render_exclusions(new_description, new_lines + missing)
 
 
 def _rows_context(rows) -> list[dict]:
@@ -168,21 +235,12 @@ def _authored_evidence(conn: sqlite3.Connection, search_id: int) -> list[str]:
 
 def collect_retune_evidence(conn: sqlite3.Connection, search_id: int) -> dict:
     """Everything accumulated since the last synthesis: rejects, matched
-    context, the user's authored corrections, and the current deal
-    threshold (an edit to it is evidence the user disagrees with this
-    identity's price band)."""
-    threshold_row = conn.execute(
-        "SELECT p.deal_threshold FROM bargain_searches s "
-        "JOIN product_identities p ON p.id = s.product_identity_id "
-        "WHERE s.id=?",
-        (search_id,),
-    ).fetchone()
+    context, and the user's authored corrections."""
     return {
         "mode": "retune",
         "matched": collect_matched_context(conn, search_id),
         "rejects": _reject_evidence(conn, search_id),
         "authored_descriptions": _authored_evidence(conn, search_id),
-        "deal_threshold": threshold_row[0] if threshold_row else None,
     }
 
 
@@ -209,7 +267,6 @@ def update_identity_from_search(conn: sqlite3.Connection, search_id: int) -> Non
             "matched": matched,
             "rejects": [],
             "authored_descriptions": [],
-            "deal_threshold": None,
         }
     else:
         evidence = collect_retune_evidence(conn, search_id)
@@ -219,6 +276,9 @@ def update_identity_from_search(conn: sqlite3.Connection, search_id: int) -> Non
     except Exception:
         conn.rollback()
         return
+    # The Exclusions block is user-asserted fact; the model rewrite must
+    # not drop it. The prompt asks; this check guarantees (ticket #61).
+    new_description = enforce_exclusions(new_description, current_description)
     if not new_description.strip() or new_description == current_description:
         return
     now = _now()

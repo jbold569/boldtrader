@@ -31,11 +31,11 @@ def db(tmp_path, monkeypatch):
     conn.close()
 
 
-def seed_identity(conn, description="seed phrase", deal_threshold=None, synthesized_at=None):
+def seed_identity(conn, description="seed phrase", synthesized_at=None):
     cur = conn.execute(
-        "INSERT INTO product_identities (description, deal_threshold, synthesized_at) "
-        "VALUES (?, ?, ?)",
-        (description, deal_threshold, synthesized_at),
+        "INSERT INTO product_identities (description, synthesized_at) "
+        "VALUES (?, ?)",
+        (description, synthesized_at),
     )
     conn.commit()
     return cur.lastrowid
@@ -270,7 +270,7 @@ def test_identical_replacement_does_not_flag_stale(db, monkeypatch):
 
 def test_retune_incorporates_evidence(db, monkeypatch):
     iid = seed_identity(
-        db, description="old description", deal_threshold=18.0, synthesized_at="2026-10-01 00:00:00"
+        db, description="old description", synthesized_at="2026-10-01 00:00:00"
     )
     rec = Recorder(reply="Retuned description.")
     monkeypatch.setattr(ident.router, "synthesize_description", rec)
@@ -292,7 +292,6 @@ def test_retune_incorporates_evidence(db, monkeypatch):
     assert ev["current_description"] == "old description"
     assert ev["rejects"] == [{"title": "rejected thing", "reason": "different brand"}]
     assert ev["authored_descriptions"] == ["wrong model entirely"]
-    assert ev["deal_threshold"] == 18.0
     assert ev["matched"] == [
         {"title": "a match", "product": None, "authored": None}
     ]
@@ -352,7 +351,6 @@ def test_router_synthesize_description_returns_prose(monkeypatch):
             "matched": [{"title": "Dell Optiplex 7080", "product": "i5/16GB", "authored": None}],
             "rejects": [],
             "authored_descriptions": [],
-            "deal_threshold": 25.0,
         }
     )
 

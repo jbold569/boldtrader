@@ -253,7 +253,13 @@ will judge every future listing against, so it must be specific enough to
 separate the wanted product from near-misses, and free of price, condition,
 and seller copy.
 
-Reply with ONLY the description sentence. No preamble, no quotes, no JSON."""
+If the current description ends with an "Exclusions:" block (that header
+line followed by one reason per line), keep every exclusion line verbatim
+at the end of your rewrite. Those lines are facts the buyer asserted; your
+job covers the product sentence only.
+
+Reply with ONLY the description (plus any Exclusions block). No preamble,
+no quotes, no JSON."""
 
 
 def synthesize_description(evidence: dict, model: str = CHAT_MODEL) -> str:
@@ -261,9 +267,8 @@ def synthesize_description(evidence: dict, model: str = CHAT_MODEL) -> str:
 
     The pack carries the mode ("synthesize" first draft, "retune" revision),
     the matched listing context, and for a retune the counter-evidence:
-    rejects with reasons, authored descriptions, the current description,
-    and the deal threshold. Plain chat (not the decision lane): this is
-    creative writing, not classification.
+    rejects with reasons and authored descriptions. Plain chat (not the
+    decision lane): this is creative writing, not classification.
     """
     parts = [evidence.get("current_description") or "(none yet)"]
     if evidence.get("mode") == "retune":
@@ -273,7 +278,6 @@ def synthesize_description(evidence: dict, model: str = CHAT_MODEL) -> str:
                 {
                     "rejects": evidence.get("rejects", []),
                     "authored_descriptions": evidence.get("authored_descriptions", []),
-                    "deal_threshold": evidence.get("deal_threshold"),
                 },
                 ensure_ascii=False,
             )

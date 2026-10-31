@@ -137,7 +137,7 @@ Envelope `items` are result cards:
 | POST | `/api/v1/searches/{id}/run` | empty → `202` search resource; re-kicks fan-out, no version bump (ticket #56) |
 | GET | `/api/v1/searches/{id}/liveness` | → `{"done": true, "banner": "", "dead": []}` |
 
-Rejections are scoped to the search (glossary: feeding the exclusion list for the next sift). Re-enrichment never overwrites existing Enrichment (glossary definition). Liveness response keeps today's shape. The one-time re-enrichment wave for listings enriched before the Product Identity change: run this once per existing search (the endpoint re-queues only the missing/failed rows for that search's match/unsure listings, so it is safe to re-run):
+A rejection is a live correction to Product Identity data (ticket #61): the reject row is stored (an identical reject for the same search+listing is deduplicated), that listing's price observations under the search's mapped identity are deleted, and the reason is appended verbatim as a line in the mapped identity's `Exclusions:` block (created if absent, deduped case-insensitively). `DELETE` reverses all three: the reject row drops, the reason's line is removed from the Exclusions block, and a fresh price observation is recorded from the listing's current effective price. Re-enrichment never overwrites existing Enrichment (glossary definition). Liveness response keeps today's shape. The one-time re-enrichment wave for listings enriched before the Product Identity change: run this once per existing search (the endpoint re-queues only the missing/failed rows for that search's match/unsure listings, so it is safe to re-run):
 
 ```
 curl -s -X POST http://localhost:10000/api/v1/searches/<ID>/reenrichment
@@ -149,7 +149,7 @@ curl -s -X POST http://localhost:10000/api/v1/searches/<ID>/reenrichment
 |---|---|---|
 | GET | `/api/v1/product-identities` | Paginated list |
 | GET | `/api/v1/product-identities/{id}` | Single identity |
-| PATCH | `/api/v1/product-identities/{id}` | Edit `description` and/or `deal_threshold` |
+| PATCH | `/api/v1/product-identities/{id}` | Edit `description` |
 | POST | `/api/v1/product-identities/{id}/merge` | `{"into": <winner_id>}` → `200` winner |
 | POST | `/api/v1/product-identities/{id}/retune` | Explicit synthesis → `200` identity |
 
@@ -159,24 +159,45 @@ curl -s -X POST http://localhost:10000/api/v1/searches/<ID>/reenrichment
 {
   "id": 3,
   "description": "HP Z440 workstation, Xeon E5-1650 v2/16GB/512GB SSD",
-  "deal_threshold": 35.0,
   "synthesized_at": "2026-10-26T14:03:11Z",
   "created_at": "2026-10-20T09:15:00Z",
-  "updated_at": "2026-10-26T14:03:11Z"
+  "updated_at": "2026-10-26T14:03:11Z",
+  "listing_count": 42,
+  "observation_count": 210,
+  "fair_prices": { "complete": 200.0, "for parts": 60.0 },
+  "search_ids": [4, 9]
 }
 ```
 
-`deal_threshold` is a percentage (`35.0` = margin ≥ 35% is a deal); `null` means fall back to the global `settings.deal_threshold`. `synthesized_at` is `null` until the description is model-synthesized (ADR 0012).
+`synthesized_at` is `null` until the description is model-synthesized (ADR 0012). `listing_count` / `observation_count` count the rows pointing at this identity. `fair_prices` maps each condition with observations to its computed fair price (a value of `null` means cold start for that condition); an identity with no observations has `"fair_prices": {}`. `search_ids` lists every Bargain Search mapped to this identity — the mapping invariant (ticket #61): every search maps to exactly one identity.
 
-**PATCH** accepts a partial body: `{"description": "...", "deal_threshold": 30.0}` or `{"deal_threshold": null}` to clear the override. `description` must be non-empty; `deal_threshold` must be a positive number or `null`. Violations → `422` / `invalid_identity`. A hand-edit is not a synthesis: `synthesized_at` is untouched.
+There is no stored deal threshold (ticket #61, ADR 0013): no global setting, no per-identity override. Whether a margin is a deal is the human's judgment at view time; the API only ever reports the computed `margin_pct`.
+
+**PATCH** accepts a partial body: `{"description": "..."}`. `description` must be non-empty; violations → `422` / `invalid_identity`. A hand-edit is not a synthesis: `synthesized_at` is untouched.
 
 **Merge** (ticket #56): every listing, price observation, and search mapping pointing at the loser is re-pointed at the winner, then the loser is deleted — one transaction, all-or-nothing. Missing `into` → `400 / invalid_merge`; non-integer `into` or self-merge → `422 / invalid_merge`; unknown loser or winner → `404 / identity_not_found`; an error mid-transaction rolls back everything → `500 / merge_failed`. Response is the winner resource.
 
-**Retune** is the explicit user-triggered version of the description synthesis (ADR 0012): evidence (matched listings, rejections, authored descriptions) is gathered from every search mapped to this identity and the model rewrites the description. On success `synthesized_at` is set and every mapped search's `stale_lids` is refreshed. A model/router failure → `500 / synthesis_failed`, nothing persisted. If the model returns blank or identical text the identity is returned unchanged (no-op).
+**Retune** is the explicit user-triggered version of the description synthesis (ADR 0012): evidence (matched listings, rejections, authored descriptions) is gathered from every search mapped to this identity and the model rewrites the description. Any `Exclusions:` block in the current description is carried over verbatim — the post-write validation force re-appends any exclusion line the model dropped (ticket #61). On success `synthesized_at` is set and every mapped search's `stale_lids` is refreshed. A model/router failure → `500 / synthesis_failed`, nothing persisted. If the model returns blank or identical text the identity is returned unchanged (no-op).
+
+**Re-resolution** — `POST /api/v1/identities/reresolve` (ticket #61; note the `/identities` prefix, distinct from `/product-identities`). Body: `{"scope": "all"}` to re-resolve every enriched listing, or `{"listing_ids": ["a", "b"]}` to re-resolve a specific set. For each targeted listing the stored text (title + snippet) is re-run through the resolution step with the full identity list as candidates — no marketplace refetch. Listings whose enrichment was hand-corrected are skipped. A listing whose resolution changed is re-pointed to the new identity together with all its historical price observations. Response:
+
+```json
+{
+  "moves": [
+    { "listing_id": "offup:1", "old_identity_id": 3, "new_identity_id": 7 }
+  ],
+  "total": 120,
+  "moved": 4,
+  "unchanged": 114,
+  "skipped_corrected": 2
+}
+```
+
+Bad body (unknown scope value, `listing_ids` not a list of strings, or an id absent from `listings`) → `422 / invalid_reresolve`.
 
 ### Deals
 
-`GET /api/v1/deals` — the flat deal feed: every identified listing whose computed verdict is `deal`. No search context required.
+`GET /api/v1/deals` — the flat deal feed: every identified listing with a computable fair price, sorted by margin. No search context required, no stored threshold gating it (ticket #61, ADR 0013).
 
 Query params (all optional, combinable):
 
@@ -207,16 +228,8 @@ Envelope `items`:
 }
 ```
 
-Only listings with a `product_identity_id` are considered, and only those the deal math calls a deal: `effective_price ≤ fair_price × (1 − threshold/100)`, where the threshold is the identity's override or the global `deal_threshold`. Listings in cold start (no fair price yet — fewer than 5 trailing-90-day observations) never appear: there is nothing to judge them against.
+Only listings with a `product_identity_id` are considered, and listings in cold start (no fair price yet — fewer than 5 trailing-90-day observations) never appear: there is nothing to judge them against. Every remaining listing appears regardless of margin — the feed shows the raw `margin_pct` and the human decides what clears.
 
-### Settings
-
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/api/v1/settings` | → `{"deal_threshold": 25.0}` |
-| PATCH | `/api/v1/settings` | `{"deal_threshold": 30}` → `200` full object |
-
-`deal_threshold` is the global default deal margin percentage; a Product Identity's own `deal_threshold` overrides it. Values must be positive numbers; unknown keys → `422 / invalid_settings`. The response is always the full settings object.
 
 ### Enrichment correction
 

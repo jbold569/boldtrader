@@ -1,8 +1,8 @@
-"""T1 schema tests (ticket #52): Product Identity, Price Observation, settings.
+"""T1 schema tests (ticket #52): Product Identity, Price Observation.
 
-Covers the new tables, the added columns, the settings default, the
-dropped `conversations` table, and migration idempotency for both a
-fresh DB and a pre-existing (old-schema) DB.
+Covers the new tables, the added columns, the dropped `conversations`
+table, and migration idempotency for both a fresh DB and a
+pre-existing (old-schema) DB.
 """
 
 from __future__ import annotations
@@ -42,7 +42,6 @@ def test_new_tables_exist(db):
     assert {
         "product_identities",
         "price_observations",
-        "settings",
     } <= tables(db)
 
 
@@ -52,7 +51,6 @@ def test_product_identities_columns(db):
         "description",
         "created_at",
         "updated_at",
-        "deal_threshold",
         "synthesized_at",
     } == columns(db, "product_identities")
 
@@ -87,34 +85,6 @@ def test_bargain_searches_has_product_identity_id(db):
 
 def test_conversations_table_dropped(db):
     assert "conversations" not in tables(db)
-
-
-def test_settings_default_deal_threshold(db):
-    row = db.execute(
-        "SELECT value FROM settings WHERE key='deal_threshold'"
-    ).fetchone()
-    assert row is not None
-    assert float(row[0]) == 25.0
-
-
-def test_init_is_idempotent(db):
-    init_db(os.environ["BOLDTRADER_DB"])
-    init_db(os.environ["BOLDTRADER_DB"])
-    assert {
-        "product_identities",
-        "price_observations",
-        "settings",
-    } <= tables(db)
-
-
-def test_settings_default_not_overwritten_on_reinit(db):
-    db.execute("UPDATE settings SET value='40' WHERE key='deal_threshold'")
-    db.commit()
-    init_db(os.environ["BOLDTRADER_DB"])
-    row = db.execute(
-        "SELECT value FROM settings WHERE key='deal_threshold'"
-    ).fetchone()
-    assert float(row[0]) == 40.0
 
 
 # --- pre-existing (old-schema) DB ------------------------------------------
@@ -174,7 +144,7 @@ def test_existing_old_db_migrates(tmp_path, monkeypatch):
     seed.close()
 
     conn = init_db(path)
-    assert {"product_identities", "price_observations", "settings"} <= tables(conn)
+    assert {"product_identities", "price_observations"} <= tables(conn)
     # and a fresh insert into the new columns works
     conn.execute(
         "INSERT INTO product_identities (description) VALUES ('HP Z440 workstation')"

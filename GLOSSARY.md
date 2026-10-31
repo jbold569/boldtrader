@@ -17,7 +17,7 @@ What the buyer really pays for the thing they want: out-the-door price minus the
 _Avoid_: net price, real cost
 
 **Bundle**:
-A single listing that includes multiple things — the wanted product plus extra components, each extra itself resolvable to its own Product Identity. Components outside the Product Identity description are unwanted extras; flip value applies to them.
+A single listing that includes multiple things — the wanted product plus extra components. Components outside the Product Identity description are unwanted extras; the flip value credits them for resale value only: the money they can be flipped for, never for what they are. Resolving a bundle's components into their own Product Identities is not built: today flip_value credits a component only when an identity with its exact description already exists and has a fair price.
 _Avoid_: lot, package, set
 
 **Fair price**:
@@ -29,7 +29,7 @@ A single recorded data point: the effective price seen for a product in a given 
 _Avoid_: price point, data point
 
 **Product Identity**:
-A persisted prose description of a product of interest, synthesized from the union of matched listing context and tuned over time by human interaction — accepting, rejecting/restoring listings, and refining descriptions. It is the shared context a human or model uses to decide whether a Listing is the thing being sought. Created when a Bargain Search is made; every Bargain Search maps to exactly one Product Identity. Bundle components resolve to Product Identities through the same mechanism. Price observations pool per (Product Identity, Condition).
+A persisted prose description of a product of interest, synthesized from the union of matched listing context and tuned over time by human interaction — accepting, rejecting/restoring listings, and refining descriptions. It is the shared context a human or model uses to decide whether a Listing is the thing being sought. Minted at Bargain Search creation from the draft phrase: every Bargain Search maps to exactly one Product Identity, none left unmapped. The description carries an Exclusions block at its end — a literal `Exclusions:` header line followed by one rejection reason per line — which every automatic rewrite must preserve verbatim; the rewrite's validation force re-appends any dropped line. Price observations pool per (Product Identity, Condition).
 _Avoid_: product string, product key
 
 
@@ -83,8 +83,8 @@ A place name (city, ZIP, metro) anchoring the geographic scope of a Search or Ba
 _Avoid_: area, region, locality
 
 **Deal threshold**:
-How far below fair price a listing must fall to count as a deal, expressed as a percentage. A global default applies to every product; the user may override it per product. Market analysis may raise the threshold where a product's observed prices are noisy, but never lower it below the floor.
-_Avoid_: cutoff, margin
+A human judgment made at the view layer, not a stored number. Nothing in the system holds a threshold: the deal feed computes margin_pct = (fair − effective) / fair × 100 per listing and the buyer decides, in the moment, what margin clears. The judgment carries context no stored percentage captures — urgency, seller distance, how trustworthy the fair price looks at this sample size.
+_Avoid_: cutoff, stored margin, deal bar
 
 **Price surge**:
 A sustained rise in a product's market price driven by external events — new releases, component shortages, hype — rather than anything about individual listings. During a surge, listings priced at the surged level are not deals even if they look cheap against older memory.

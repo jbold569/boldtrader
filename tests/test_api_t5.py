@@ -1,6 +1,6 @@
 """Contract tests for the T5 JSON API surface (ticket #56).
 
-Product Identity CRUD + merge + retune, GET /deals, GET/PATCH /settings,
+Product Identity CRUD + merge + retune, GET /deals,
 POST /searches/{id}/run, DELETE /searches/{id}/rejections/{lid}, and
 PATCH /enrichments/{lid} (Correction), plus the changed max_price
 semantics (effective price, not asking). Same live-server + temp-DB
@@ -27,10 +27,13 @@ API = "/api/v1"
 IDENTITY_KEYS = {
     "id",
     "description",
-    "deal_threshold",
     "synthesized_at",
     "created_at",
     "updated_at",
+    "listing_count",
+    "observation_count",
+    "fair_prices",
+    "search_ids",
 }
 
 DEAL_ITEM_KEYS = {
@@ -106,12 +109,10 @@ def call(method: str, url: str, body=None, raw: bytes | None = None):
         return exc.code, parsed, dict(exc.headers)
 
 
-def seed_identity(conn, description="HP Z440 workstation", deal_threshold=None,
-                 synthesized_at=None):
+def seed_identity(conn, description="HP Z440 workstation", synthesized_at=None):
     cur = conn.execute(
-        "INSERT INTO product_identities (description, deal_threshold, synthesized_at) "
-        "VALUES (?, ?, ?)",
-        (description, deal_threshold, synthesized_at),
+        "INSERT INTO product_identities (description, synthesized_at) VALUES (?, ?)",
+        (description, synthesized_at),
     )
     conn.commit()
     return cur.lastrowid
@@ -227,13 +228,12 @@ def test_identity_list_per_page_capped(site):
 
 
 def test_get_identity(site, db):
-    iid = seed_identity(db, "HP Z440", deal_threshold=18.0,
+    iid = seed_identity(db, "HP Z440",
                        synthesized_at="2026-10-20T09:15:00Z")
     status, body, _ = call("GET", f"{site}/api/v1/product-identities/{iid}")
     assert status == 200
     assert set(body) == IDENTITY_KEYS
     assert body["description"] == "HP Z440"
-    assert body["deal_threshold"] == 18.0
     # identity._now() writes Z-form already; it must pass through untouched.
     assert body["synthesized_at"] == "2026-10-20T09:15:00Z"
 
@@ -266,24 +266,6 @@ def test_patch_description(site, db):
     assert row[0] == "new words"
 
 
-def test_patch_deal_threshold(site, db):
-    iid = seed_identity(db)
-    _, body, _ = call("PATCH", f"{site}/api/v1/product-identities/{iid}",
-                     {"deal_threshold": 30.0})
-    assert body["deal_threshold"] == 30.0
-
-
-def test_patch_clear_deal_threshold(site, db):
-    iid = seed_identity(db, deal_threshold=18.0)
-    _, body, _ = call("PATCH", f"{site}/api/v1/product-identities/{iid}",
-                     {"deal_threshold": None})
-    assert body["deal_threshold"] is None
-    stored = db.execute(
-        "SELECT deal_threshold FROM product_identities WHERE id=?", (iid,)
-    ).fetchone()[0]
-    assert stored is None
-
-
 def test_patch_empty_description_rejected(site, db):
     iid = seed_identity(db)
     status, body, _ = call("PATCH", f"{site}/api/v1/product-identities/{iid}",
@@ -291,14 +273,6 @@ def test_patch_empty_description_rejected(site, db):
     assert status == 422
     assert body["error"]["code"] == "invalid_identity"
 
-
-def test_patch_bad_threshold_rejected(site, db):
-    iid = seed_identity(db)
-    for bad in (0, -5, "cheap", True):
-        status, body, _ = call("PATCH", f"{site}/api/v1/product-identities/{iid}",
-                              {"deal_threshold": bad})
-        assert status == 422, bad
-        assert body["error"]["code"] == "invalid_identity"
 
 
 def test_patch_identity_missing(site):
@@ -457,7 +431,7 @@ class Recorder:
 
 
 def test_retune_persists_new_description(site, db, monkeypatch):
-    iid = seed_identity(db, "old description", deal_threshold=18.0,
+    iid = seed_identity(db, "old description",
                        synthesized_at="2026-10-01 00:00:00")
     seed_listing(db, "m", price=100.0)
     sid = seed_search(db, identity_id=iid, listing_ids={"m": "match"})
@@ -477,7 +451,7 @@ def test_retune_persists_new_description(site, db, monkeypatch):
     ).fetchone()[0]
     assert set(json.loads(stale)) == {"m"}
     assert rec.calls[0]["mode"] == "retune"
-    assert rec.calls[0]["deal_threshold"] == 18.0
+    assert "deal_threshold" not in rec.calls[0]
 
 
 def test_retune_first_run_synthesizes(site, db, monkeypatch):
@@ -551,13 +525,14 @@ def seed_deals(db):
     return pid
 
 
-def test_deals_only_lists_verdict_deals(site, db):
+def test_deals_lists_every_listing_with_fair_price(site, db):
     seed_deals(db)
     status, body, _ = call("GET", site + "/api/v1/deals")
     assert status == 200
-    items = body["items"]
-    assert [i["listing_id"] for i in items] == ["deal1"]
-    assert body["total"] == 1
+    # No stored threshold: every identified listing with a fair price
+    # appears, best margin first (ticket #61).
+    assert [i["listing_id"] for i in body["items"]] == ["deal1", "no1"]
+    assert body["total"] == 2
 
 
 def test_deals_item_shape(site, db):
@@ -590,7 +565,7 @@ def test_deals_filter_by_identity(site, db):
     seed_enrichment(db, "d2", condition="complete", matched_id=other)
     _, body, _ = call("GET",
                      site + f"/api/v1/deals?product_identity_id={pid}")
-    assert [i["listing_id"] for i in body["items"]] == ["deal1"]
+    assert [i["listing_id"] for i in body["items"]] == ["deal1", "no1"]
     _, body, _ = call("GET",
                      site + f"/api/v1/deals?product_identity_id={other}")
     assert [i["listing_id"] for i in body["items"]] == ["d2"]
@@ -601,13 +576,13 @@ def test_deals_filter_by_marketplace_and_availability(site, db):
     _, body, _ = call("GET", site + "/api/v1/deals?marketplace=offerup")
     assert [i["listing_id"] for i in body["items"]] == ["deal1"]
     _, body, _ = call("GET", site + "/api/v1/deals?marketplace=facebook")
-    assert body["items"] == []
+    assert [i["listing_id"] for i in body["items"]] == ["no1"]
     db.execute("UPDATE listings SET availability='dead' WHERE id='deal1'")
     db.commit()
     _, body, _ = call("GET", site + "/api/v1/deals?availability=dead")
     assert [i["listing_id"] for i in body["items"]] == ["deal1"]
     _, body, _ = call("GET", site + "/api/v1/deals?availability=live")
-    assert body["items"] == []
+    assert [i["listing_id"] for i in body["items"]] == ["no1"]
 
 
 def test_deals_max_price_filters_effective(site, db):
@@ -647,47 +622,6 @@ def test_deals_bad_availability_400(site):
     assert status == 400
     assert body["error"]["code"] == "invalid_availability"
 
-
-# --- Settings -----------------------------------------------------------------
-
-
-def test_get_settings_default(site):
-    status, body, _ = call("GET", site + "/api/v1/settings")
-    assert status == 200
-    assert body == {"deal_threshold": 25.0}
-
-
-def test_patch_settings_roundtrip(site):
-    status, body, _ = call("PATCH", site + "/api/v1/settings",
-                          {"deal_threshold": 30})
-    assert status == 200
-    assert body["deal_threshold"] == 30.0
-    _, body, _ = call("GET", site + "/api/v1/settings")
-    assert body["deal_threshold"] == 30.0
-
-
-def test_patch_settings_rejects_bad_values(site):
-    for bad in (0, -3, "wide", True):
-        status, body, _ = call("PATCH", site + "/api/v1/settings",
-                              {"deal_threshold": bad})
-        assert status == 422, bad
-        assert body["error"]["code"] == "invalid_settings"
-
-
-def test_patch_settings_rejects_unknown_key(site):
-    status, body, _ = call("PATCH", site + "/api/v1/settings", {"mystery": 1})
-    assert status == 422
-    assert body["error"]["code"] == "invalid_settings"
-
-
-def test_patch_settings_preserves_other_rows(site, db):
-    db.execute("INSERT INTO settings (key, value) VALUES ('other', 'kept')")
-    db.commit()
-    _, body, _ = call("PATCH", site + "/api/v1/settings", {"deal_threshold": 12})
-    assert body["deal_threshold"] == 12.0
-    assert db.execute(
-        "SELECT value FROM settings WHERE key='other'"
-    ).fetchone() == ("kept",)
 
 
 # --- POST /searches/{id}/run ---------------------------------------------------

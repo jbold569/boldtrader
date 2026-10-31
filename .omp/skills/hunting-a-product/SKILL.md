@@ -18,7 +18,7 @@ The user wants to buy a thing — "watch for HP Z440 workstations under $300",
 Also use this skill when a hunt goes thin and the net needs widening.
 
 For fixing wrong data you find mid-hunt, switch to `correcting-data`. For
-making the deal bar stricter or looser, see `tuning-thresholds`. For running
+how to read deal margins at view time, see `tuning-thresholds`. For running
 the recurring morning pass, see `daily-sweep`.
 
 ## Tools

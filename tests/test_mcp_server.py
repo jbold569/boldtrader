@@ -98,8 +98,7 @@ EXPECTED_TOOLS = {
     "merge_identities",
     "retune_identity",
     "list_deals",
-    "get_settings",
-    "update_settings",
+    "reresolve",
     "reenrich_search",
     "correct_enrichment",
 }
@@ -214,9 +213,9 @@ def test_none_query_args_are_dropped(stub):
 
 
 def test_explicit_null_reaches_body(stub):
-    """PATCH-to-clear: a null deal_threshold must be sent, not dropped."""
-    call("update_settings", {"deal_threshold": None}, stub)
-    assert _Stub.recorded[0]["body"] == {"deal_threshold": None}
+    """PATCH-to-clear: a null target_price must be sent, not dropped."""
+    call("update_search", {"search_id": 1, "target_price": None}, stub)
+    assert _Stub.recorded[0]["body"] == {"target_price": None}
 
 
 def test_path_params_are_substituted(stub):
@@ -270,11 +269,9 @@ def test_marketplace_search_query(stub):
 def test_empty_body_tools(stub):
     call("run_search", {"search_id": 5}, stub)
     call("reenrich_search", {"search_id": 5}, stub)
-    call("get_settings", {}, stub)
     assert [r["path"] for r in _Stub.recorded] == [
         "/api/v1/searches/5/run",
         "/api/v1/searches/5/reenrichment",
-        "/api/v1/settings",
     ]
 
 

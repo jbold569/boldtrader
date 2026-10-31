@@ -22,7 +22,7 @@ from datetime import date, timedelta
 from . import chat as chat_mod
 from . import dealmath, enhanced, events, liveness
 from .db import get_connection
-from .fanout import fan_out, reenrich_search
+from .fanout import fan_out, reenrich_search, _resolve_identity
 from . import identity as ident_mod
 from . import router
 
@@ -334,6 +334,26 @@ def update_search(handler, search_id: str) -> None:
         except chat_mod.DraftError as exc:
             raise ApiError(422, "invalid_draft", str(exc))
         chat_mod.update_search(conn, current["id"], draft)
+        # Backfill: every search maps to one identity (ticket #61). A
+        # legacy NULL-mapped row gets its identity from the draft phrase.
+        row = conn.execute(
+            "SELECT product_identity_id FROM bargain_searches WHERE id=?",
+            (current["id"],),
+        ).fetchone()
+        if row[0] is None:
+            existing = conn.execute(
+                "SELECT id FROM product_identities WHERE description=?",
+                (draft["product_identity"],),
+            ).fetchone()
+            if existing is None:
+                identity_id = ident_mod.seed_identity(conn, draft["product_identity"])
+            else:
+                identity_id = existing[0]
+            conn.execute(
+                "UPDATE bargain_searches SET product_identity_id=? WHERE id=?",
+                (identity_id, current["id"]),
+            )
+            conn.commit()
     finally:
         conn.close()
     _send_json(handler, 200, _get_resource(current["id"]))
@@ -901,15 +921,14 @@ def _read_body(handler) -> dict:
     return body
 
 
-# --- Product Identities, Deals, Settings, Corrections (ticket #56) ------
+# --- Product Identities, Deals, Corrections (tickets #56, #61) ---------
 
 
 IDENTITY_COLUMNS = (
-    "id, description, deal_threshold, synthesized_at, created_at, updated_at"
+    "id, description, synthesized_at, created_at, updated_at"
 )
 
 VALID_DEAL_SORTS = ("margin_desc", "margin_asc")
-DEAL_SETTINGS_KEYS = ("deal_threshold",)
 
 
 def _ts_or_none(ts):
@@ -922,22 +941,51 @@ def _ts_or_none(ts):
     return _iso(ts)
 
 
-def _identity_resource(row) -> dict:
+def _identity_resource(conn, row) -> dict:
+    """The identity resource: the stored columns plus the derived numbers
+    a reader wants — how many listings/observations point here, the fair
+    price per condition observed (null where cold), and the mapped search
+    ids (ticket #61)."""
     (
         identity_id,
         description,
-        deal_threshold,
         synthesized_at,
         created_at,
         updated_at,
     ) = row
+    listing_count = conn.execute(
+        "SELECT COUNT(*) FROM listings WHERE product_identity_id=?", (identity_id,)
+    ).fetchone()[0]
+    observation_count = conn.execute(
+        "SELECT COUNT(*) FROM price_observations WHERE product_identity_id=?",
+        (identity_id,),
+    ).fetchone()[0]
+    conditions = [
+        c[0]
+        for c in conn.execute(
+            "SELECT DISTINCT condition FROM price_observations "
+            "WHERE product_identity_id=? ORDER BY condition",
+            (identity_id,),
+        )
+    ]
+    fair_prices = {c: dealmath.fair_price(conn, identity_id, c) for c in conditions}
+    search_ids = [
+        r[0]
+        for r in conn.execute(
+            "SELECT id FROM bargain_searches WHERE product_identity_id=? ORDER BY id",
+            (identity_id,),
+        )
+    ]
     return {
         "id": identity_id,
         "description": description,
-        "deal_threshold": deal_threshold,
         "synthesized_at": _ts_or_none(synthesized_at),
         "created_at": _ts_or_none(created_at),
         "updated_at": _ts_or_none(updated_at),
+        "listing_count": listing_count,
+        "observation_count": observation_count,
+        "fair_prices": fair_prices,
+        "search_ids": search_ids,
     }
 
 
@@ -951,7 +999,7 @@ def _load_identity(conn, identity_id) -> dict:
     ).fetchone()
     if row is None:
         raise ApiError(404, "identity_not_found", f"No product identity with id {identity_id}")
-    return _identity_resource(row)
+    return _identity_resource(conn, row)
 
 
 def _unique(items: list) -> list:
@@ -977,10 +1025,11 @@ def list_identities(qs: dict) -> dict:
             "ORDER BY id LIMIT ? OFFSET ?",
             (per_page, (page - 1) * per_page),
         ).fetchall()
+        items = [_identity_resource(conn, r) for r in rows]
     finally:
         conn.close()
     return {
-        "items": [_identity_resource(r) for r in rows],
+        "items": items,
         "page": page,
         "per_page": per_page,
         "total": total,
@@ -996,10 +1045,126 @@ def get_identity(handler, identity_id: str) -> None:
         conn.close()
     _send_json(handler, 200, resource)
 
+def _reresolve_targets(conn, body: dict) -> list[str]:
+    """Validate the reresolve body and return the enriched listing ids it
+    selects. scope="all" or an explicit listing_ids list; anything else
+    is 422."""
+    scope = body.get("scope")
+    listing_ids = body.get("listing_ids")
+    if listing_ids is not None:
+        if not isinstance(listing_ids, list) or not all(
+            isinstance(x, str) and x.strip() for x in listing_ids
+        ):
+            raise ApiError(
+                422, "invalid_reresolve", "listing_ids must be a list of listing id strings"
+            )
+        placeholders = ",".join("?" * len(listing_ids))
+        found = {
+            r[0]
+            for r in conn.execute(
+                f"SELECT id FROM listings WHERE id IN ({placeholders})",
+                listing_ids,
+            )
+        }
+        missing = [x for x in listing_ids if x not in found]
+        if missing:
+            raise ApiError(
+                422, "invalid_reresolve",
+                f"unknown listing ids: {', '.join(missing)}",
+            )
+        return listing_ids
+    if scope == "all":
+        return [
+            r[0]
+            for r in conn.execute(
+                "SELECT listing_id FROM enrichments WHERE status='enriched' "
+                "ORDER BY listing_id"
+            )
+        ]
+    raise ApiError(
+        422, "invalid_reresolve", 'body must be {"scope":"all"} or {"listing_ids":[...]}'
+    )
+
+
+def reresolve_identities(handler) -> None:
+    """Re-run resolution over stored listing text with the full identity
+    list as candidates (ticket #61). No marketplace refetch: the words we
+    already have, re-read with eyes that know more products. Listings the
+    user corrected are skipped — the human's word wins. A listing whose
+    resolution changed is re-pointed together with its price history."""
+    body = _read_draft(handler)
+    conn = get_connection()
+    try:
+        targets = _reresolve_targets(conn, body)
+        identities = [
+            {"id": r[0], "description": r[1]}
+            for r in conn.execute(
+                "SELECT id, description FROM product_identities ORDER BY id ASC"
+            )
+        ]
+        moves: list[dict] = []
+        skipped_corrected = 0
+        for lid in targets:
+            row = conn.execute(
+                "SELECT product, corrected FROM enrichments "
+                "WHERE listing_id=? AND status='enriched'",
+                (lid,),
+            ).fetchone()
+            if row is None:
+                continue
+            if row[1]:
+                skipped_corrected += 1
+                continue
+            listing_row = conn.execute(
+                "SELECT raw, product_identity_id, authored_description "
+                "FROM listings WHERE id=?",
+                (lid,),
+            ).fetchone()
+            data = json.loads(listing_row[0])
+            old_pid = listing_row[1]
+            authored = listing_row[2] or ""
+            text = (data.get("title") or "") + "\n\n" + (data.get("snippet") or "")
+            try:
+                record = router.enrich(text, candidates=identities, authored=authored)
+            except Exception:
+                continue
+            new_pid = _resolve_identity(conn, record.get("product") or {})
+            if new_pid is None or new_pid == old_pid:
+                continue
+            conn.execute(
+                "UPDATE listings SET product_identity_id=? WHERE id=?", (new_pid, lid)
+            )
+            conn.execute(
+                "UPDATE price_observations SET product_identity_id=? "
+                "WHERE listing_id=?",
+                (new_pid, lid),
+            )
+            moves.append(
+                {"listing_id": lid, "old_identity_id": old_pid, "new_identity_id": new_pid}
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    total = len(targets)
+    moved = len(moves)
+    _send_json(
+        handler,
+        200,
+        {
+            "moves": moves,
+            "total": total,
+            "moved": moved,
+            "unchanged": total - moved - skipped_corrected,
+            "skipped_corrected": skipped_corrected,
+        },
+    )
+
+
 
 def patch_identity(handler, identity_id: str) -> None:
-    """Edit the identity's description and/or deal_threshold. Clearing
-    deal_threshold (null) falls back to the global setting."""
+    """Hand-edit the identity's description. The deal_threshold column is
+    gone (ticket #61): deal judgment is the human's at view time, so the
+    only editable field is the prose itself."""
     body = _read_draft(handler)
     fields: dict = {}
     if "description" in body:
@@ -1007,13 +1172,6 @@ def patch_identity(handler, identity_id: str) -> None:
         if not isinstance(value, str) or not value.strip():
             raise ApiError(422, "invalid_identity", "description must be a non-empty string")
         fields["description"] = value.strip()
-    if "deal_threshold" in body:
-        value = body["deal_threshold"]
-        if value is not None:
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-                raise ApiError(422, "invalid_identity", "deal_threshold must be a positive number")
-            value = float(value)
-        fields["deal_threshold"] = value
     conn = get_connection()
     try:
         current = _load_identity(conn, identity_id)
@@ -1106,7 +1264,6 @@ def retune_identity(handler, identity_id: str) -> None:
                 "matched": _unique(matched),
                 "rejects": [],
                 "authored_descriptions": [],
-                "deal_threshold": None,
             }
         else:
             evidence = {
@@ -1115,12 +1272,16 @@ def retune_identity(handler, identity_id: str) -> None:
                 "matched": _unique(matched),
                 "rejects": _unique(rejects),
                 "authored_descriptions": _unique(authored),
-                "deal_threshold": identity["deal_threshold"],
             }
         try:
             new_description = router.synthesize_description(evidence)
         except Exception as exc:
             raise ApiError(500, "synthesis_failed", f"description synthesis failed: {exc}")
+        # Exclusions are user-asserted fact: force-preserve through the
+        # rewrite (ticket #61).
+        new_description = ident_mod.enforce_exclusions(
+            new_description, identity["description"]
+        )
         if not new_description.strip() or new_description == identity["description"]:
             _send_json(handler, 200, identity)
             return
@@ -1144,10 +1305,11 @@ def retune_identity(handler, identity_id: str) -> None:
 
 
 def list_deals(qs: dict) -> dict:
-    """Every identified, live-listed listing whose computed verdict is
-    'deal', sorted by margin (descending by default). Cold starts — no
-    fair price yet — never qualify. max_price filters the effective
-    price, per contract (ticket #56)."""
+    """Every identified, live-listed listing with a computable fair
+    price, sorted by margin (descending by default). Cold starts — no
+    fair price yet — never qualify. There is no stored threshold (ticket
+    #61): the feed shows the raw margin and the human decides what
+    clears. max_price filters the effective price, per contract."""
     page, per_page = _read_paging(qs)
     sort = (qs.get("sort") or ["margin_desc"])[0]
     if sort not in VALID_DEAL_SORTS:
@@ -1218,9 +1380,6 @@ def list_deals(qs: dict) -> dict:
                 else 0.0
             )
             effective = dealmath.effective_price(float(price), shipping, flip)
-            threshold = dealmath.threshold_for(conn, pid)
-            if dealmath.deal_verdict(effective, fair, threshold) != "deal":
-                continue
             if max_price is not None and effective > max_price:
                 continue
             n_obs = conn.execute(
@@ -1255,47 +1414,6 @@ def list_deals(qs: dict) -> dict:
         "total_pages": max(1, math.ceil(total / per_page)),
     }
 
-
-def _settings_object() -> dict:
-    conn = get_connection()
-    try:
-        rows = conn.execute("SELECT key, value FROM settings").fetchall()
-    finally:
-        conn.close()
-    out: dict = {}
-    for key, value in rows:
-        try:
-            out[key] = float(value)
-        except ValueError:
-            out[key] = value
-    return out
-
-
-def get_settings(handler) -> None:
-    _send_json(handler, 200, _settings_object())
-
-
-def patch_settings(handler) -> None:
-    body = _read_draft(handler)
-    unknown = set(body) - set(DEAL_SETTINGS_KEYS)
-    if unknown:
-        raise ApiError(
-            422, "invalid_settings", f"unknown settings: {', '.join(sorted(unknown))}"
-        )
-    if "deal_threshold" in body:
-        value = body["deal_threshold"]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-            raise ApiError(422, "invalid_settings", "deal_threshold must be a positive number")
-        conn = get_connection()
-        try:
-            conn.execute(
-                "UPDATE settings SET value=? WHERE key='deal_threshold'",
-                (str(float(value)),),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-    _send_json(handler, 200, _settings_object())
 
 
 def run_search(handler, search_id: str) -> None:
@@ -1340,6 +1458,9 @@ def restore_rejection(handler, search_id: str, listing_id: str) -> None:
             "DELETE FROM rejects WHERE bargain_search_id=? AND listing_id=?",
             (key, listing_id),
         )
+        # Reverse the identity correction too: exclusion line out, price
+        # observation back in (ticket #61).
+        enhanced.restore_correction(conn, key, listing_id, row[0] or "")
         # Exclusions are exactly the reasons still on the books: whatever
         # the remaining rejections carry, in rejection order.
         exclusions = [
@@ -1571,19 +1692,15 @@ def handle(handler) -> None:
                     retune_identity(handler, parts[3])
                     return
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
+        if parts[2:3] == ["identities"]:
+            if len(parts) == 4 and parts[3] == "reresolve" and handler.command == "POST":
+                reresolve_identities(handler)
+                return
+            raise ApiError(404, "not_found", f"No route for {parsed.path}")
         if parts[2:3] == ["deals"]:
             if len(parts) == 3 and handler.command == "GET":
                 _send_json(handler, 200, list_deals(parse_qs(parsed.query)))
                 return
-            raise ApiError(404, "not_found", f"No route for {parsed.path}")
-        if parts[2:3] == ["settings"]:
-            if len(parts) == 3:
-                if handler.command == "GET":
-                    get_settings(handler)
-                    return
-                if handler.command == "PATCH":
-                    patch_settings(handler)
-                    return
             raise ApiError(404, "not_found", f"No route for {parsed.path}")
         if parts[2:3] == ["enrichments"]:
             if len(parts) == 4 and handler.command == "PATCH":

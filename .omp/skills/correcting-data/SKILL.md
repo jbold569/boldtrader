@@ -28,9 +28,9 @@ If you are creating or widening a hunt instead, see `hunting-a-product`.
 | `create_rejection` | Reject a card and feed its reason to the exclusion list |
 | `restore_rejection` | Undo a rejection; the listing is asserted to BE the product |
 | `merge_identities` | Fold a duplicate Product Identity into the winner |
-| `patch_identity` | Hand-edit a description or threshold |
+| `patch_identity` | Hand-edit a description |
 | `retune_identity` | Model rewrites a description from accumulated evidence |
-| `reenrich_search` | Re-queue missing or failed Enrichment for one search |
+| `reresolve` | Re-run identity resolution over stored listings (scope all or listed ids) |
 
 ## The condition set
 
@@ -60,15 +60,20 @@ items need a non-empty `description` and a `confidence` of
 
 ## Rejections
 
-`create_rejection(search_id, listing_id, reason)` feeds the reason into the
-next Sift's exclusion list, so the reason must say *why* — "not a Z440,
-it's a Z230" — not just "no". A bare "no" poisons the exclusion list with
-something the model cannot act on.
+A rejection is a live correction, not just an exclusion note. A
+`create_rejection(search_id, listing_id, reason)` appends the reason
+verbatim to the mapped Product Identity's `Exclusions:` block and
+deletes that listing's price observations under the mapped identity —
+the record is fixed in the same breath it is refused. The reason must
+say *why* — "not a Z440, it's a Z230" — not just "no": the line goes
+straight into the identity's description, where every future rewrite
+carries it and every sift reads it.
 
-`restore_rejection` reverses it: the exclusion drops (only if no remaining
-rejection shares that reason) and the listing becomes a match. Because the
-identity's evidence just changed, follow with `run_search` so the verdicts
-re-sift and `verdict_stale` clears.
+`restore_rejection` reverses all three: the reject row is dropped, the
+reason's line is removed from the Exclusions block, and a fresh price
+observation is recorded from the listing's current data. Because the
+identity's evidence just changed, follow with `run_search` so the
+verdicts re-sift and `verdict_stale` clears.
 
 ## Authored descriptions
 
