@@ -132,6 +132,8 @@
   padding: 14px;
   flex: 1;
   min-height: 0;
+  /* the scroller for every non-chat page; .chat brings its own */
+  overflow-y: auto;
 }
 .sheet {
   position: fixed;

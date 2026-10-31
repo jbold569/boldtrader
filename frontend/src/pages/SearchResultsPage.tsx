@@ -152,7 +152,9 @@ export default function SearchResultsPage() {
     if (params.get("page")) {
       setParams(patchSearch(params, { page: null }), { replace: true });
     }
-    window.scrollTo({ top: 0 });
+    // the page scrolls inside .shell-b-body (tray locks the window);
+    // window.scrollTo is a no-op here.
+    document.querySelector(".shell-b-body")?.scrollTo({ top: 0 });
   };
 
   // Bottom sentinel: reaching the end of the frozen grid adopts the queue.
