@@ -128,3 +128,15 @@ _Avoid_: deal search, advanced search, broadcast
 **Chat Session**:
 A conversation between the user and the agent, independent of any Bargain Search. Where the user searches listings, does research, and asks the agent to create, modify, or delete Bargain Searches. A search is no longer the unit of conversation; the session is.
 _Avoid_: thread, dialogue, bot
+
+**Daily Sweep**:
+The scheduled once-a-day pass over the whole board: re-fan every Bargain Search serially, refresh the price of every live matched Listing, reresolve Stale verdicts, and send a digest. Fires at 06:00, and on startup if the last sweep is older than about 20 hours.
+_Avoid_: cron job, morning routine, batch run
+
+**Price refresh**:
+Re-fetching a stored Listing's current asking price from the Marketplace and recording it as a fresh Price Observation. Distinct from Re-enrichment: no verdict is re-made and no Enrichment is rewritten — only the ask and its observation.
+_Avoid_: price update, re-pricing, poll
+
+**Stale verdict**:
+A listing's verdict made against an older version of the Product Identity description. Every description rewrite marks the matched set as stale; Stale listings are the ones reresolve re-judges. Listings carrying a Correction are never stale — user truth outranks description drift.
+_Avoid_: outdated match, expired verdict
