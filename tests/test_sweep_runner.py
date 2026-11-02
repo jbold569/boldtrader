@@ -10,6 +10,7 @@ refresh, clock (FakeClock pattern from test_enrichment_throttle).
 
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 import threading
@@ -19,6 +20,7 @@ import pytest
 from src.db import init_db
 from src import stale
 from src import sweep
+from src import digest
 
 
 class FakeClock:
@@ -150,6 +152,10 @@ def test_happy_path_full_chain(tmp_path, db, monkeypatch):
     monkeypatch.setattr(sweep, "bulk_refresh_price", fake_b)
     rr_calls: dict = {}
     monkeypatch.setattr(sweep, "reresolve_by_ids", fake_reresolve(rr_calls))
+    delivered: list = []
+    monkeypatch.setattr(
+        digest, "deliver_digest", lambda rep: delivered.append(rep) or "x"
+    )
 
     report = sweep.run_sweep({}, db, clock=FakeClock())
 
@@ -159,8 +165,11 @@ def test_happy_path_full_chain(tmp_path, db, monkeypatch):
     assert first["match_count"] == 2
     assert first["failed"] is False
     assert first["timed_out"] is False
+    assert first["summary"] == "search one"
+    assert first["best_margin_pct"] is None  # cold start: no fair price yet
     assert second["new_listing_count"] == 2
     assert second["match_count"] == 1
+    assert second["best_margin_pct"] is None
     # Each description rewrite captured with old and new text + evidence count.
     assert first["old_desc"] == "seed words"
     assert first["new_desc"] == "new words one"
@@ -174,6 +183,8 @@ def test_happy_path_full_chain(tmp_path, db, monkeypatch):
     # The union is cleared after the reresolve completes.
     assert db.execute("SELECT COUNT(*) FROM stale_union").fetchone()[0] == 0
     assert report["outcome"] == "complete"
+    # Ticket #73: the digest was delivered with this exact report.
+    assert delivered == [report]
 
     row = db.execute(
         "SELECT started_at, finished_at, outcome, report FROM sweep_runs"
@@ -183,6 +194,47 @@ def test_happy_path_full_chain(tmp_path, db, monkeypatch):
     assert outcome == "complete"
     assert started_at and finished_at
     assert json.loads(report_json) == report
+
+
+# --- best margin (ticket #73) ---------------------------------------------------
+
+
+def test_best_margin_computed_from_deal_math(tmp_path, db, monkeypatch):
+    s1, pid = seed_search(db, "search one")
+    v1 = {"ebay:1": "match", "ebay:2": "match"}
+    monkeypatch.setattr(
+        sweep, "fan_out",
+        completing_fan(tmp_path / "sweep.db", {s1: v1}, {"1": "rewritten"}),
+    )
+    monkeypatch.setattr(sweep, "bulk_refresh_price", fake_b)
+    rr_calls: dict = {}
+    monkeypatch.setattr(sweep, "reresolve_by_ids", fake_reresolve(rr_calls))
+    monkeypatch.setattr(digest, "deliver_digest", lambda rep: None)
+    # Fair 200 for the identity: five complete-condition observations.
+    # Listing rows must exist first: price_observations references them.
+    for lid in ("ebay:1", "ebay:2"):
+        raw = json.dumps({"id": lid.split(":", 1)[1], "title": "widget",
+                         "price": 100.0, "snippet": "x",
+                         "marketplace": lid.split(":", 1)[0]})
+        db.execute(
+            "INSERT OR IGNORE INTO listings (id, raw, product_identity_id) VALUES (?, ?, ?)",
+            (lid, raw, pid),
+        )
+    db.commit()
+    # Fair 200 for the identity: five complete-condition observations.
+    for i in range(5):
+        day = (datetime.date.today() - datetime.timedelta(days=i)).isoformat()
+        db.execute(
+            "INSERT INTO price_observations "
+            "(listing_id, product_identity_id, condition, effective_price, observed_at) "
+            "VALUES ('ebay:1', ?, 'complete', 200.0, ?)",
+            (pid, day),
+        )
+    db.commit()
+
+    report = sweep.run_sweep({}, db, clock=FakeClock())
+    # Listings ask 100.0, no shipping, no flip: (200-100)/200*100 = 50.0.
+    assert report["searches"][0]["best_margin_pct"] == 50.0
 
 
 # --- mid-chain failure --------------------------------------------------------
@@ -203,6 +255,7 @@ def test_raising_search_is_contained_and_recorded(tmp_path, db, monkeypatch):
     monkeypatch.setattr(sweep, "bulk_refresh_price", fake_b)
     rr_calls: dict = {}
     monkeypatch.setattr(sweep, "reresolve_by_ids", fake_reresolve(rr_calls))
+    monkeypatch.setattr(digest, "deliver_digest", lambda rep: None)
 
     report = sweep.run_sweep({}, db, clock=FakeClock())
 
@@ -210,6 +263,7 @@ def test_raising_search_is_contained_and_recorded(tmp_path, db, monkeypatch):
     assert report["searches"][1]["search_id"] == s2
     assert report["searches"][1]["failed"] is True
     assert "fan exploded" in report["searches"][1]["error"]
+    assert report["searches"][1]["best_margin_pct"] is None
     # The chain continued past the failure: phase B and C both ran.
     assert report["price_refresh"]["refreshed_count"] == 4
     assert rr_calls["ids"] == ["ebay:1"]
@@ -241,6 +295,7 @@ def test_timeout_marks_search_and_chain_continues(tmp_path, db, monkeypatch):
     monkeypatch.setattr(sweep, "bulk_refresh_price", fake_b)
     rr_calls: dict = {}
     monkeypatch.setattr(sweep, "reresolve_by_ids", fake_reresolve(rr_calls))
+    monkeypatch.setattr(digest, "deliver_digest", lambda rep: None)
 
     clock = FakeClock()
     report = sweep.run_sweep({}, db, clock=clock)
@@ -249,6 +304,7 @@ def test_timeout_marks_search_and_chain_continues(tmp_path, db, monkeypatch):
     assert first["search_id"] == s1
     assert first["timed_out"] is True
     assert first["failed"] is True
+    assert first["best_margin_pct"] is None
     # The wait passed the ~20-minute cap on the injected clock.
     assert clock.now >= sweep.PER_SEARCH_TIMEOUT_SECONDS
     # Chain continued: the healthy search and the later phases ran.
@@ -267,6 +323,10 @@ def test_empty_board_is_a_valid_run(db, monkeypatch):
     monkeypatch.setattr(sweep, "bulk_refresh_price", fake_b)
     rr_calls: dict = {}
     monkeypatch.setattr(sweep, "reresolve_by_ids", fake_reresolve(rr_calls))
+    delivered: list = []
+    monkeypatch.setattr(
+        digest, "deliver_digest", lambda rep: delivered.append(rep) or "x"
+    )
 
     report = sweep.run_sweep({}, db, clock=FakeClock())
 
@@ -275,6 +335,7 @@ def test_empty_board_is_a_valid_run(db, monkeypatch):
     assert rr_calls.get("ids") is None
     assert report["reresolve"]["total"] == 0
     assert report["outcome"] == "complete"
+    assert delivered == [report]
     row = db.execute(
         "SELECT started_at, finished_at, outcome FROM sweep_runs"
     ).fetchone()

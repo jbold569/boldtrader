@@ -23,6 +23,8 @@ from .fanout import fan_out
 from .pricerefresh import bulk_refresh_price
 from .api import reresolve_by_ids
 from . import stale
+from . import dealmath
+from . import digest
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +56,50 @@ def _identity_desc(conn, search_id: int):
     return row[0] if row else None
 
 
+def _best_margin(conn, verdicts: dict) -> float | None:
+    """Largest margin_pct across the search's matched listings, or None
+    when nothing qualifies (no matches, no computable fair price).
+    Same formula as list_deals: (fair - effective) / fair * 100."""
+    best: float | None = None
+    lids = [lid for lid, v in verdicts.items() if v in ("match", "unsure")]
+    for lid in lids:
+        row = conn.execute(
+            "SELECT l.raw, l.shipping_cost, l.product_identity_id, "
+            "e.condition, e.bundle, e.product "
+            "FROM listings l LEFT JOIN enrichments e ON e.listing_id = l.id "
+            "WHERE l.id=?",
+            (lid,),
+        ).fetchone()
+        if row is None:
+            continue
+        raw, shipping, pid, cond, bun, prod = row
+        if pid is None:
+            continue
+        data = json.loads(raw)
+        price = data.get("price")
+        if price is None:
+            continue
+        condition = cond or "complete"
+        fair = dealmath.fair_price(conn, pid, condition)
+        if fair is None:
+            continue
+        bundle = json.loads(bun) if bun else None
+        identity_desc = None
+        if prod:
+            try:
+                identity_desc = (json.loads(prod) or {}).get("description")
+            except ValueError:
+                identity_desc = None
+        flip = (
+            dealmath.flip_value(conn, bundle, identity_desc or "") if bundle else 0.0
+        )
+        effective = dealmath.effective_price(float(price), shipping, flip)
+        margin = (fair - effective) / fair * 100.0
+        if best is None or margin > best:
+            best = margin
+    return best
+
+
 def _fan_worker(
     marketplaces, search_id: int, location, errors: list, done: threading.Event
 ) -> None:
@@ -78,9 +124,10 @@ def _run_search_with_timeout(marketplaces, conn, search_id: int, clock) -> dict:
     running until it finishes itself, harmlessly — every write it makes
     is the same idempotent per-search bookkeeping."""
     row = conn.execute(
-        "SELECT location FROM bargain_searches WHERE id=?", (search_id,)
+        "SELECT location, summary FROM bargain_searches WHERE id=?", (search_id,)
     ).fetchone()
     location = row[0] if row else None
+    summary = row[1] if row else None
     before_desc = _identity_desc(conn, search_id)
     errors: list[str] = []
     done = threading.Event()
@@ -93,8 +140,7 @@ def _run_search_with_timeout(marketplaces, conn, search_id: int, clock) -> dict:
     t.start()
     while not done.wait(WAIT_SLICE_SECONDS) and clock.monotonic() < deadline:
         clock.sleep(POLL_SECONDS)
-
-    rec: dict = {"search_id": search_id}
+    rec: dict = {"search_id": search_id, "summary": summary}
     if not done.is_set():
         rec.update(
             new_listing_count=0,
@@ -102,6 +148,7 @@ def _run_search_with_timeout(marketplaces, conn, search_id: int, clock) -> dict:
             failed=True,
             timed_out=True,
             error=f"timed out after {PER_SEARCH_TIMEOUT_SECONDS}s",
+            best_margin_pct=None,
         )
         return rec
     if errors:
@@ -111,6 +158,7 @@ def _run_search_with_timeout(marketplaces, conn, search_id: int, clock) -> dict:
             failed=True,
             timed_out=False,
             error=errors[0],
+            best_margin_pct=None,
         )
         return rec
     verdict_row = conn.execute(
@@ -121,6 +169,7 @@ def _run_search_with_timeout(marketplaces, conn, search_id: int, clock) -> dict:
     rec["match_count"] = sum(1 for v in verdicts.values() if v in ("match", "unsure"))
     rec["failed"] = False
     rec["timed_out"] = False
+    rec["best_margin_pct"] = _best_margin(conn, verdicts)
     after = conn.execute(
         "SELECT description, matched_evidence FROM product_identities "
         "WHERE id=(SELECT product_identity_id FROM bargain_searches WHERE id=?)",
@@ -235,4 +284,7 @@ def run_sweep(marketplaces: dict, store, clock=None) -> dict:
         (report["finished_at"], outcome, json.dumps(report), run_id),
     )
     conn.commit()
+    if outcome != "failed":
+        # The morning digest rides the same report: file first, Signal second.
+        digest.deliver_digest(report)
     return report

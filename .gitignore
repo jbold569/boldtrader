@@ -13,3 +13,6 @@ node_modules/
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
+
+# Daily digest files (ticket #73): operator records, not source.
+sweeps/
