@@ -27,11 +27,15 @@ class ListingDetail:
     """Full record of one Listing for Enrichment: what the search tile omits.
 
     shipping_cost is None where the marketplace doesn't expose shipping/fees.
+    price is the current asking price read from the item page (ticket #67:
+    price refresh needs the live ask, not the frozen first-sight value);
+    None where the detail record doesn't carry one.
     """
 
     description: str = ""
     images: list[str] = field(default_factory=list)
     shipping_cost: float | None = None
+    price: float | None = None
 
 
 @dataclass

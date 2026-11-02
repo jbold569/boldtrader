@@ -102,10 +102,21 @@ class EbayScraper(Marketplace):
                 m = re.search(r"\$\s*([\d,]+(?:\.\d{1,2})?)", text)
                 shipping_cost = _parse_price(m.group(1)) if m else None
 
+        price = None
+        price_el = soup.select_one('[itemprop="price"]')
+        if price_el and price_el.get("content"):
+            price = _parse_price(price_el["content"])
+        if price is None:
+            price_el = soup.select_one(".x-text-largest")
+            if price_el:
+                m = re.search(r"\$\s*([\d,]+(?:\.\d{1,2})?)", price_el.get_text(" ", strip=True))
+                price = _parse_price(m.group(1)) if m else None
+
         return ListingDetail(
             description=description,
             images=images,
             shipping_cost=shipping_cost,
+            price=price,
         )
 
     def _parse(self, html: str, page: int) -> SearchResult:

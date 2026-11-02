@@ -130,8 +130,16 @@ class FacebookScraper(Marketplace):
         if og_img and og_img.get("content"):
             images.append(og_img["content"])
 
+        price = None
+        og_price = soup.find("meta", attrs={"property": "og:price:amount"})
+        if og_price and og_price.get("content"):
+            try:
+                price = float(og_price["content"])
+            except ValueError:
+                price = None
+
         # FB marketplace exposes no shipping/fees.
-        return ListingDetail(description=desc, images=images, shipping_cost=None)
+        return ListingDetail(description=desc, images=images, shipping_cost=None, price=price)
 
     def _parse(self, html: str, page: int) -> SearchResult:
         soup = BeautifulSoup(html, "html.parser")

@@ -151,6 +151,7 @@ class OfferupScraper(Marketplace):
             description=rec.get("description") or "",
             images=images,
             shipping_cost=_to_price(rate.get("price")),
+            price=_to_price(rec.get("price")),
         )
 
     def _build(self, listings: list[Listing], page: int, cursor) -> SearchResult:
