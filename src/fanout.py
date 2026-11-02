@@ -30,8 +30,8 @@ log = logging.getLogger("boldtrader.fanout")
 # Throttle: a dead network makes every fetch fail in ~300ms, so an unpaced
 # drain of hundreds of rows becomes a request firehose that gets the host IP
 # blocked by the marketplaces. Pace every outbound request and cool down hard
-# on a burst of consecutive failures (the signature of an outage, not of a
-# single bad listing).
+# on a burst of consecutive blocked responses (the signature of a block,
+# not of a single bad listing).
 #
 # The cooldown escalates (300s, 600s, 1200s, capped) instead of restarting
 # the same 300s pause every five rows: the eBay 403 block of 2026-10-31
@@ -454,46 +454,79 @@ def enrichment_worker(
 
     Throttle: at most one enrichment per ENRICH_MIN_INTERVAL_SECONDS (the
     interval covers the whole row: fetch_detail + model call + DB write; if
-    the work already took longer, no extra wait). A run of
-    ENRICH_CONSECUTIVE_FAILURE_LIMIT consecutive failures is treated as an
-    outage (dead DNS/network, blocked IP) rather than bad listings, so the
-    worker sleeps ENRICH_COOLDOWN_SECONDS before the next attempt, doubling
-    each burst up to ENRICH_MAX_COOLDOWN_SECONDS. A block that outlasts one
-    fixed pause (eBay, 2026-10-31) must not be met with the same firehose
-    every time. The level resets on the first success.
+    the work already took longer, no extra wait).
+
+    Cooldown (ticket #66, ADR 0015): each marketplace keeps its own
+    consecutive-failure count and its own escalating cooldown (300s,
+    doubling, capped at ENRICH_MAX_COOLDOWN_SECONDS, reset on that
+    marketplace's next success). Only block-shaped failures (403/429/503)
+    count against a marketplace: an ordinary per-listing model/parse error
+    fails the row and leaves the marketplace counter untouched. A tripped
+    marketplace sits out until its cooldown expires; its rows wait in the
+    database (the "queue is the database" recovery property) while the
+    other marketplaces keep draining at normal pace. When every pending
+    row belongs to a cooling marketplace, the worker sleeps only to the
+    earliest next-allowed, not the latest. The state lives in memory only:
+    a restart gives every marketplace a fresh chance.
     """
     conn = get_connection()
     log.info("enrichment worker started")
+    failures: dict[str, int] = {}
+    cooldown: dict[str, float] = {}
+    next_allowed: dict[str, float] = {}
     try:
-        next_allowed = 0.0
-        consecutive_failures = 0
-        cooldown = ENRICH_COOLDOWN_SECONDS
+        next_row_at = 0.0
         while True:
-            row = conn.execute(
-                "SELECT listing_id FROM enrichments WHERE status='pending' LIMIT 1"
-            ).fetchone()
-            if row is None:
-                time.sleep(poll_seconds)
+            now = time.monotonic()
+            lid = None
+            name = None
+            earliest = None
+            for (p_lid,) in conn.execute(
+                "SELECT listing_id FROM enrichments WHERE status='pending' "
+                "ORDER BY created_at, listing_id"
+            ):
+                mp = p_lid.split(":", 1)[0]
+                na = next_allowed.get(mp, 0.0)
+                if na <= now:
+                    lid, name = p_lid, mp
+                    break
+                if earliest is None or na < earliest:
+                    earliest = na
+            if lid is None:
+                if earliest is None:
+                    time.sleep(poll_seconds)
+                else:
+                    # All pending rows belong to cooling marketplaces:
+                    # wake at the earliest next-allowed, not the latest.
+                    time.sleep(max(0.0, earliest - time.monotonic()))
                 continue
-            wait = next_allowed - time.monotonic()
+            wait = next_row_at - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
-            ok = _enrich_one(conn, marketplaces, row[0])
-            next_allowed = time.monotonic() + ENRICH_MIN_INTERVAL_SECONDS
+            ok = _enrich_one(conn, marketplaces, lid)
+            next_row_at = time.monotonic() + ENRICH_MIN_INTERVAL_SECONDS
             if ok:
-                consecutive_failures = 0
-                cooldown = ENRICH_COOLDOWN_SECONDS
+                failures[name] = 0
+                cooldown[name] = ENRICH_COOLDOWN_SECONDS
+                next_allowed.pop(name, None)
             else:
-                consecutive_failures += 1
-                if consecutive_failures >= ENRICH_CONSECUTIVE_FAILURE_LIMIT:
+                # A row left 'pending' by _enrich_one means blocked
+                # (403/429/503); 'failed' is an ordinary listing error.
+                status = conn.execute(
+                    "SELECT status FROM enrichments WHERE listing_id=?", (lid,)
+                ).fetchone()[0]
+                if status != "pending":
+                    continue
+                failures[name] = failures.get(name, 0) + 1
+                if failures[name] >= ENRICH_CONSECUTIVE_FAILURE_LIMIT:
+                    cd = cooldown.get(name, ENRICH_COOLDOWN_SECONDS)
                     log.warning(
-                        "%d consecutive enrichment failures; cooling down %.0fs "
-                        "(upstream outage?)",
-                        consecutive_failures, cooldown,
+                        "%s: %d consecutive blocked fetches; cooling %.0fs",
+                        name, failures[name], cd,
                     )
-                    time.sleep(cooldown)
-                    consecutive_failures = 0
-                    cooldown = min(cooldown * 2, ENRICH_MAX_COOLDOWN_SECONDS)
+                    next_allowed[name] = time.monotonic() + cd
+                    failures[name] = 0
+                    cooldown[name] = min(cd * 2, ENRICH_MAX_COOLDOWN_SECONDS)
             for srow in conn.execute(
                 "SELECT id FROM bargain_searches WHERE status='enriching'"
             ).fetchall():
