@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import api
+from .scheduler import start_scheduler
 from .db import init_db
 from .ebay_scraper import EbayScraper
 from .facebook_scraper import FacebookScraper
@@ -193,6 +194,7 @@ def main() -> None:
     threading.Thread(
         target=enrichment_worker, args=(Handler.fanout_marketplaces,), daemon=True
     ).start()
+    start_scheduler(Handler.fanout_marketplaces)
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"BoldTrader serving on http://{args.host}:{args.port}/")
