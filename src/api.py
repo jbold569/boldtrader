@@ -1087,78 +1087,84 @@ def _reresolve_targets(conn, body: dict) -> list[str]:
     )
 
 
+def reresolve_by_ids(conn, listing_ids: list[str]) -> dict:
+    """Re-run resolution over the given listings with the full identity
+    list as candidates (ticket #61 core, DB-only per ticket #71): the
+    reresolve action's logic with the handler coupling removed, so the
+    sweep runner calls it directly. Listings the user corrected are
+    skipped — the human's word wins. A listing whose resolution changed
+    is re-pointed together with its price history."""
+    identities = [
+        {"id": r[0], "description": r[1]}
+        for r in conn.execute(
+            "SELECT id, description FROM product_identities ORDER BY id ASC"
+        )
+    ]
+    moves: list[dict] = []
+    skipped_corrected = 0
+    for lid in listing_ids:
+        row = conn.execute(
+            "SELECT product, corrected FROM enrichments "
+            "WHERE listing_id=? AND status='enriched'",
+            (lid,),
+        ).fetchone()
+        if row is None:
+            continue
+        if row[1]:
+            skipped_corrected += 1
+            continue
+        listing_row = conn.execute(
+            "SELECT raw, product_identity_id, authored_description "
+            "FROM listings WHERE id=?",
+            (lid,),
+        ).fetchone()
+        data = json.loads(listing_row[0])
+        old_pid = listing_row[1]
+        authored = listing_row[2] or ""
+        text = (data.get("title") or "") + "\n\n" + (data.get("snippet") or "")
+        try:
+            record = router.enrich(text, candidates=identities, authored=authored)
+        except Exception:
+            continue
+        new_pid = _resolve_identity(conn, record.get("product") or {})
+        if new_pid is None or new_pid == old_pid:
+            continue
+        conn.execute(
+            "UPDATE listings SET product_identity_id=? WHERE id=?", (new_pid, lid)
+        )
+        conn.execute(
+            "UPDATE price_observations SET product_identity_id=? "
+            "WHERE listing_id=?",
+            (new_pid, lid),
+        )
+        moves.append(
+            {"listing_id": lid, "old_identity_id": old_pid, "new_identity_id": new_pid}
+        )
+    conn.commit()
+    total = len(listing_ids)
+    moved = len(moves)
+    return {
+        "moves": moves,
+        "total": total,
+        "moved": moved,
+        "unchanged": total - moved - skipped_corrected,
+        "skipped_corrected": skipped_corrected,
+    }
+
+
 def reresolve_identities(handler) -> None:
     """Re-run resolution over stored listing text with the full identity
     list as candidates (ticket #61). No marketplace refetch: the words we
-    already have, re-read with eyes that know more products. Listings the
-    user corrected are skipped — the human's word wins. A listing whose
-    resolution changed is re-pointed together with its price history."""
+    already have, re-read with eyes that know more products. The heavy
+    lifting lives in reresolve_by_ids (ticket #71)."""
     body = _read_draft(handler)
     conn = get_connection()
     try:
         targets = _reresolve_targets(conn, body)
-        identities = [
-            {"id": r[0], "description": r[1]}
-            for r in conn.execute(
-                "SELECT id, description FROM product_identities ORDER BY id ASC"
-            )
-        ]
-        moves: list[dict] = []
-        skipped_corrected = 0
-        for lid in targets:
-            row = conn.execute(
-                "SELECT product, corrected FROM enrichments "
-                "WHERE listing_id=? AND status='enriched'",
-                (lid,),
-            ).fetchone()
-            if row is None:
-                continue
-            if row[1]:
-                skipped_corrected += 1
-                continue
-            listing_row = conn.execute(
-                "SELECT raw, product_identity_id, authored_description "
-                "FROM listings WHERE id=?",
-                (lid,),
-            ).fetchone()
-            data = json.loads(listing_row[0])
-            old_pid = listing_row[1]
-            authored = listing_row[2] or ""
-            text = (data.get("title") or "") + "\n\n" + (data.get("snippet") or "")
-            try:
-                record = router.enrich(text, candidates=identities, authored=authored)
-            except Exception:
-                continue
-            new_pid = _resolve_identity(conn, record.get("product") or {})
-            if new_pid is None or new_pid == old_pid:
-                continue
-            conn.execute(
-                "UPDATE listings SET product_identity_id=? WHERE id=?", (new_pid, lid)
-            )
-            conn.execute(
-                "UPDATE price_observations SET product_identity_id=? "
-                "WHERE listing_id=?",
-                (new_pid, lid),
-            )
-            moves.append(
-                {"listing_id": lid, "old_identity_id": old_pid, "new_identity_id": new_pid}
-            )
-        conn.commit()
+        report = reresolve_by_ids(conn, targets)
     finally:
         conn.close()
-    total = len(targets)
-    moved = len(moves)
-    _send_json(
-        handler,
-        200,
-        {
-            "moves": moves,
-            "total": total,
-            "moved": moved,
-            "unchanged": total - moved - skipped_corrected,
-            "skipped_corrected": skipped_corrected,
-        },
-    )
+    _send_json(handler, 200, report)
 
 
 

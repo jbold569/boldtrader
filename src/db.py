@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS stale_union (
     listing_id TEXT PRIMARY KEY REFERENCES listings(id),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS sweep_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    outcome TEXT,
+    report TEXT
+);
 """
 
 
