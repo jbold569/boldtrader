@@ -3,7 +3,10 @@
 A Product Identity starts as the user's seed phrase and becomes a living
 prose description: the first completed search synthesizes one from the
 matched listings, every subsequent completion retunes it with the new
-evidence (rejects, corrections). The description is
+evidence (rejects, corrections). The retune is gated on new matched
+listings (ticket #68): a completion that brings none skips the model
+call entirely and records the skip on the search for the daily digest.
+The description is
 what sift judges against from then on, so a change to it makes every
 existing verdict stale — flagged, never silently re-sifted (ADR 0006:
 re-sifting happens only on an explicit re-run).
@@ -247,20 +250,29 @@ def collect_retune_evidence(conn: sqlite3.Connection, search_id: int) -> dict:
 def update_identity_from_search(conn: sqlite3.Connection, search_id: int) -> None:
     """Ride the search_complete transition: synthesize (first completion)
     or retune (every later one) the identity's living description, and
-    flag the now-stale verdicts on the search (ticket #55, ADR 0012)."""
+    flag the now-stale verdicts on the search (ticket #55, ADR 0012).
+
+    The retune is gated on new evidence (ticket #68): it only runs when
+    this pass brings matched listings the identity has never been tuned
+    on. No new evidence -> skip, no model call, description untouched,
+    and a 'skipped: no new evidence' note on the search for the digest.
+    First-ever synthesis and the explicit human retune are ungated."""
     row = conn.execute(
-        "SELECT p.description, p.synthesized_at FROM bargain_searches s "
+        "SELECT p.description, p.synthesized_at, p.matched_evidence "
+        "FROM bargain_searches s "
         "JOIN product_identities p ON p.id = s.product_identity_id "
         "WHERE s.id=?",
         (search_id,),
     ).fetchone()
     if row is None:
         return  # search has no mapped identity (pre-T1 row)
-    current_description, synthesized_at = row
+    current_description, synthesized_at, baseline_json = row
+    baseline: set[str] = set(json.loads(baseline_json)) if baseline_json else set()
     matched = collect_matched_context(conn, search_id)
-    if not matched:
-        return  # nothing new to learn from
+    passed_lids = set(matched_lids(conn, search_id))
     if synthesized_at is None:
+        if not matched:
+            return  # nothing to synthesize from; leave the seed alone
         evidence = {
             "mode": "synthesize",
             "current_description": current_description,
@@ -269,12 +281,28 @@ def update_identity_from_search(conn: sqlite3.Connection, search_id: int) -> Non
             "authored_descriptions": [],
         }
     else:
+        # The gate (ticket #68): has this pass brought matched listings
+        # the current description has never been tuned on?
+        if not passed_lids - baseline:
+            conn.execute(
+                "UPDATE bargain_searches SET retune_note='skipped: no new evidence', "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (search_id,),
+            )
+            conn.commit()
+            return  # an empty day changes nothing
         evidence = collect_retune_evidence(conn, search_id)
         evidence["current_description"] = current_description
     try:
         new_description = router.synthesize_description(evidence)
     except Exception:
         conn.rollback()
+        conn.execute(
+            "UPDATE bargain_searches SET retune_note='retune failed', "
+            "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (search_id,),
+        )
+        conn.commit()
         return
     # The Exclusions block is user-asserted fact; the model rewrite must
     # not drop it. The prompt asks; this check guarantees (ticket #61).
@@ -282,13 +310,14 @@ def update_identity_from_search(conn: sqlite3.Connection, search_id: int) -> Non
     if not new_description.strip() or new_description == current_description:
         return
     now = _now()
+    new_baseline = baseline | passed_lids if synthesized_at else passed_lids
     conn.execute(
-        "UPDATE product_identities SET description=?, synthesized_at=?, updated_at=? "
+        "UPDATE product_identities SET description=?, synthesized_at=?, matched_evidence=?, updated_at=? "
         "WHERE id=(SELECT product_identity_id FROM bargain_searches WHERE id=?)",
-        (new_description, now, now, search_id),
+        (new_description, now, json.dumps(sorted(new_baseline)), now, search_id),
     )
     conn.execute(
-        "UPDATE bargain_searches SET stale_lids=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        "UPDATE bargain_searches SET stale_lids=?, retune_note=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?",
         (json.dumps(matched_lids(conn, search_id)), search_id),
     )
     conn.commit()

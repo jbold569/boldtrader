@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS bargain_searches (
     status TEXT NOT NULL DEFAULT 'active',
     listing_ids TEXT NOT NULL DEFAULT '{}',
     product_identity_id INTEGER REFERENCES product_identities(id),
+    retune_note TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS product_identities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     description TEXT NOT NULL,
     synthesized_at TEXT,
+    matched_evidence TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -169,6 +171,17 @@ def init_db(path: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
         conn.execute(
             "ALTER TABLE enrichments ADD COLUMN corrected INTEGER NOT NULL DEFAULT 0"
         )
+        conn.commit()
+    # Migrate DBs created before the retune evidence gate (#68): the
+    # per-identity last-retune matched-lid baseline and the per-search
+    # skip/failure note the daily digest reads.
+    if "matched_evidence" not in picols:
+        conn.execute(
+            "ALTER TABLE product_identities ADD COLUMN matched_evidence TEXT NOT NULL DEFAULT '[]'"
+        )
+        conn.commit()
+    if "retune_note" not in cols:
+        conn.execute("ALTER TABLE bargain_searches ADD COLUMN retune_note TEXT")
         conn.commit()
     # Migrate DBs created before the deal_threshold deletion (ticket #61):
     # the stored threshold is gone; deal judgment is a view-time human call.

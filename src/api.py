@@ -1286,10 +1286,16 @@ def retune_identity(handler, identity_id: str) -> None:
             _send_json(handler, 200, identity)
             return
         now = ident_mod._now()
+        # The rewritten description has now seen every currently-matched
+        # listing: that becomes the evidence baseline the #68 gate
+        # compares against on the next automatic completion.
+        all_matched: set[str] = set()
+        for sid in search_ids:
+            all_matched.update(ident_mod.matched_lids(conn, sid))
         conn.execute(
             "UPDATE product_identities SET description=?, synthesized_at=?, "
-            "updated_at=? WHERE id=?",
-            (new_description, now, now, identity["id"]),
+            "matched_evidence=?, updated_at=? WHERE id=?",
+            (new_description, now, json.dumps(sorted(all_matched)), now, identity["id"]),
         )
         for sid in search_ids:
             conn.execute(

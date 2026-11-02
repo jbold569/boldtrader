@@ -32,6 +32,9 @@ _Avoid_: price point, data point
 A persisted prose description of a product of interest, synthesized from the union of matched listing context and tuned over time by human interaction — accepting, rejecting/restoring listings, and refining descriptions. It is the shared context a human or model uses to decide whether a Listing is the thing being sought. Minted at Bargain Search creation from the draft phrase: every Bargain Search maps to exactly one Product Identity, none left unmapped. The description carries an Exclusions block at its end — a literal `Exclusions:` header line followed by one rejection reason per line — which every automatic rewrite must preserve verbatim; the rewrite's validation force re-appends any dropped line. Price observations pool per (Product Identity, Condition).
 _Avoid_: product string, product key
 
+**Evidence baseline**:
+The set of matched listing ids a Product Identity's current description was last tuned on, recorded on the identity (matched_evidence) at every description rewrite. The automatic retune gate (ticket #68) compares each completed search's matched set against it: no new listings -> the retune skips and the search records `skipped: no new evidence`; new listings -> the retune runs and the baseline absorbs them.
+
 
 **Unidentified listing**:
 A listing the app cannot resolve to a Product Identity — typically vague titles, missing model numbers, poor photos. Surfaced in a separate bucket rather than dropped; these often hide the best deals precisely because they're poorly described. Resolved by a user-authored description (see Grandma search).

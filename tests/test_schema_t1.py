@@ -52,6 +52,7 @@ def test_product_identities_columns(db):
         "created_at",
         "updated_at",
         "synthesized_at",
+        "matched_evidence",
     } == columns(db, "product_identities")
 
 
