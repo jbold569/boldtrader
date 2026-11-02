@@ -24,6 +24,7 @@ from . import dealmath, enhanced, events, liveness
 from .db import get_connection
 from .fanout import fan_out, reenrich_search, _resolve_identity
 from . import identity as ident_mod
+from . import stale
 from . import router
 
 DEFAULT_PER_PAGE = 50
@@ -1297,6 +1298,9 @@ def retune_identity(handler, identity_id: str) -> None:
             "matched_evidence=?, updated_at=? WHERE id=?",
             (new_description, now, json.dumps(sorted(all_matched)), now, identity["id"]),
         )
+        # Same rewrite event as the automatic path: the union must hold
+        # it too, past the next fan-out's per-search reset (#69).
+        stale.record_stale(conn, all_matched)
         for sid in search_ids:
             conn.execute(
                 "UPDATE bargain_searches SET stale_lids=?, updated_at=CURRENT_TIMESTAMP "

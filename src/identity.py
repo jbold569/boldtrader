@@ -22,7 +22,7 @@ import datetime
 import json
 import sqlite3
 
-from . import router
+from . import router, stale
 
 
 def seed_identity(conn: sqlite3.Connection, phrase: str) -> int:
@@ -316,6 +316,10 @@ def update_identity_from_search(conn: sqlite3.Connection, search_id: int) -> Non
         "WHERE id=(SELECT product_identity_id FROM bargain_searches WHERE id=?)",
         (new_description, now, json.dumps(sorted(new_baseline)), now, search_id),
     )
+    # The rewrite event lands in the night's stale union too: the
+    # per-search column below gets wiped by the next fan-out, the union
+    # must survive it (ticket #69).
+    stale.record_stale(conn, matched_lids(conn, search_id))
     conn.execute(
         "UPDATE bargain_searches SET stale_lids=?, retune_note=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?",
         (json.dumps(matched_lids(conn, search_id)), search_id),

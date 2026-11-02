@@ -95,6 +95,11 @@ CREATE TABLE IF NOT EXISTS session_messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS stale_union (
+    listing_id TEXT PRIMARY KEY REFERENCES listings(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
