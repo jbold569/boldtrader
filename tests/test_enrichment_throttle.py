@@ -479,3 +479,41 @@ def test_progress_refresh_crash_does_not_kill_worker(db, monkeypatch):
 
     n = db.execute("SELECT COUNT(*) FROM enrichments WHERE status='enriched'").fetchone()[0]
     assert n == 2
+
+
+def test_ordinary_fail_still_completes_search(db, monkeypatch):
+    """Regression #75: the last pending row failing ordinarily (not blocked)
+    must still let the progress-refresh pass flip the search to 'complete'."""
+    seed_pending(db, "test:0")
+    db.execute(
+        "INSERT INTO bargain_searches (summary, product_identity, status, listing_ids) "
+        "VALUES ('s', 'p', 'enriching', ?)",
+        (json.dumps({"test:0": "match"}),),
+    )
+    db.commit()
+    clock = FakeClock()
+    monkeypatch.setattr(fanout.time, "monotonic", clock.monotonic)
+
+    class BadMP:
+        def fetch_detail(self, listing):
+            raise Boom("model exploded")
+
+    def fake_sleep(s):
+        if s == 2.0:  # idle poll: the row was processed, stop the worker
+            raise StopIteration
+        clock.sleep(s)
+
+    monkeypatch.setattr(fanout.time, "sleep", fake_sleep)
+    monkeypatch.setattr(fanout.identity, "update_identity_from_search", lambda c, sid: None)
+
+    with pytest.raises(StopIteration):
+        fanout.enrichment_worker({"test": BadMP()}, poll_seconds=2.0)
+
+    row = db.execute(
+        "SELECT status FROM enrichments WHERE listing_id='test:0'"
+    ).fetchone()
+    assert row[0] == "failed"
+    status = db.execute(
+        "SELECT status FROM bargain_searches WHERE id=1"
+    ).fetchone()[0]
+    assert status == "complete"

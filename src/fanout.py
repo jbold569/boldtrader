@@ -515,18 +515,17 @@ def enrichment_worker(
                 status = conn.execute(
                     "SELECT status FROM enrichments WHERE listing_id=?", (lid,)
                 ).fetchone()[0]
-                if status != "pending":
-                    continue
-                failures[name] = failures.get(name, 0) + 1
-                if failures[name] >= ENRICH_CONSECUTIVE_FAILURE_LIMIT:
-                    cd = cooldown.get(name, ENRICH_COOLDOWN_SECONDS)
-                    log.warning(
-                        "%s: %d consecutive blocked fetches; cooling %.0fs",
-                        name, failures[name], cd,
-                    )
-                    next_allowed[name] = time.monotonic() + cd
-                    failures[name] = 0
-                    cooldown[name] = min(cd * 2, ENRICH_MAX_COOLDOWN_SECONDS)
+                if status == "pending":
+                    failures[name] = failures.get(name, 0) + 1
+                    if failures[name] >= ENRICH_CONSECUTIVE_FAILURE_LIMIT:
+                        cd = cooldown.get(name, ENRICH_COOLDOWN_SECONDS)
+                        log.warning(
+                            "%s: %d consecutive blocked fetches; cooling %.0fs",
+                            name, failures[name], cd,
+                        )
+                        next_allowed[name] = time.monotonic() + cd
+                        failures[name] = 0
+                        cooldown[name] = min(cd * 2, ENRICH_MAX_COOLDOWN_SECONDS)
             for srow in conn.execute(
                 "SELECT id FROM bargain_searches WHERE status='enriching'"
             ).fetchall():
