@@ -16,3 +16,6 @@ frontend/playwright-report/
 
 # Daily digest files (ticket #73): operator records, not source.
 sweeps/
+
+# Scratch notes, not source.
+.scratch/
